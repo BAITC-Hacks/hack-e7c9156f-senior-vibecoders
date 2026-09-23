@@ -9,6 +9,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from . import llm
 from .pipeline import run_analysis
 
 
@@ -39,6 +40,10 @@ def main() -> None:
     print(f"Единиц: {len(result.units)}, изменений: {dict(Counter(c.status for c in result.unit_changes))}")
     print(f"Выводы: {dict(Counter(f.type for f in result.findings))}, отклонено критиком: {len(result.rejected_findings)}")
     print(f"Проверенных ссылок: {sum(e.verified for e in ev)}/{len(ev)}")
+    for model, u in llm.usage.items():
+        print(f"  {model}: вызовов {u['calls']}, токенов вход {u['input']:,} / выход {u['output']:,}")
+    if not llm.usage:
+        print("  LLM не вызывался — всё из кэша")
 
 
 if __name__ == "__main__":

@@ -40,6 +40,18 @@ def model_name(strong: bool = False) -> str:
 
 _clients: dict[str, OpenAI] = {}
 
+# расход токенов за процесс: model → {"calls", "input", "output"} (кэш-попадания не считаются)
+usage: dict[str, dict[str, int]] = {}
+
+
+def _track(model: str, resp) -> None:
+    u = getattr(resp, "usage", None)
+    row = usage.setdefault(model, {"calls": 0, "input": 0, "output": 0})
+    row["calls"] += 1
+    if u is not None:
+        row["input"] += getattr(u, "prompt_tokens", 0) or getattr(u, "input_tokens", 0) or 0
+        row["output"] += getattr(u, "completion_tokens", 0) or getattr(u, "output_tokens", 0) or 0
+
 
 def _client(kind: str | None = None) -> OpenAI:
     kind = kind or provider()
@@ -116,6 +128,7 @@ def call_llm(system: str, user: str, schema: type[T] | None = None, *, strong: b
                 )
                 result = schema.model_validate_json(resp.choices[0].message.content or "")
                 payload = result.model_dump(mode="json")
+            _track(model, resp)
             path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
             return result
         except (ValidationError, ValueError) as e:
@@ -140,6 +153,7 @@ def embed(texts: list[str]) -> np.ndarray:
     for start in range(0, len(missing), 256):
         batch = missing[start : start + 256]
         resp = _client("openai").embeddings.create(model=model, input=[texts[i] for i in batch])
+        _track(model, resp)
         for i, d in zip(batch, resp.data):
             out[i] = d.embedding
             (cache / f"{_cache_key('emb', model, texts[i])}.json").write_text(json.dumps(d.embedding), encoding="utf-8")
