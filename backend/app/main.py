@@ -1,9 +1,10 @@
 import logging
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from app.config import Settings, settings
 from app.routers.analyses import router
@@ -24,7 +25,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, exc: HTTPException) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
+        return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)}, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, _exc: RequestValidationError) -> JSONResponse:

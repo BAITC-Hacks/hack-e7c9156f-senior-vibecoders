@@ -1,3 +1,5 @@
+import json
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +9,7 @@ from unittest.mock import patch
 from docx import Document
 from fastapi.testclient import TestClient
 
-from app.config import Settings
+from app.config import BACKEND_DIR, Settings
 from app.main import create_app
 
 
@@ -156,4 +158,122 @@ class ApiTest(TestCase):
         status = client.get(f"/api/analyses/{response.json()['id']}").json()
         self.assertEqual(status["status"], "failed")
         self.assertNotIn("secret diagnostics", str(status))
+        client.close()
+
+    def test_methods_cors_and_error_shapes(self) -> None:
+        analysis_id = self.client.post("/api/analyses/demo").json()["id"]
+        base = f"/api/analyses/{analysis_id}"
+        wrong_method = self.client.post(base)
+        self.assertEqual(wrong_method.status_code, 405)
+        self.assertEqual(set(wrong_method.json()), {"error"})
+        self.assertIn("GET", wrong_method.headers["allow"])
+        for response in (
+            self.client.get("/missing-route"),
+            self.client.get("/api/analyses/" + "0" * 32),
+            self.client.get(f"{base}/documents/missing/clauses/3.4"),
+            self.client.get(f"{base}/documents/after-1/clauses/99.9"),
+            self.client.patch(f"{base}/findings/missing", json={"status": "accepted"}),
+        ):
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(set(response.json()), {"error"})
+        invalid = self.client.patch(f"{base}/findings/f1", json={"status": "maybe"})
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(set(invalid.json()), {"error"})
+        self.assertEqual(self.client.get(f"{base}/result").status_code, 200)
+
+        allowed = self.client.options(
+            "/api/analyses", headers={
+                "Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.headers["access-control-allow-origin"], "http://localhost:5173")
+        blocked = self.client.options(
+            "/api/analyses", headers={
+                "Origin": "https://other.example", "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertNotIn("access-control-allow-origin", blocked.headers)
+
+    def test_upload_multiple_formats_filenames_and_empty_files(self) -> None:
+        response = self.client.post("/api/analyses", files=[
+            ("before", ("C:\\docs\\old.DOCX", docx_bytes("3.4. До"))),
+            ("before", ("other.xlsx", b"sheet")),
+            ("after", ("../new.pdf", b"%PDF")),
+        ])
+        self.assertEqual(response.status_code, 200)
+        folder = self.client.app.state.store.directory(response.json()["id"])
+        self.assertEqual(
+            [(d["name"], d["side"]) for d in self.client.app.state.store.documents(folder)],
+            [("old.DOCX", "before"), ("other.xlsx", "before"), ("new.pdf", "after")],
+        )
+        self.assertTrue((folder / "before-1.docx").exists())
+        self.assertTrue((folder / "before-2.xlsx").exists())
+        self.assertTrue((folder / "after-1.pdf").exists())
+
+        for files, code in (
+            ([('before', ('empty.docx', b'')), ('after', ('ok.pdf', b'%PDF'))], 400),
+            ([('before', ('old.doc', b'old')), ('after', ('ok.pdf', b'%PDF'))], 415),
+            ([('after', ('ok.pdf', b'%PDF'))], 400),
+        ):
+            response = self.client.post("/api/analyses", files=files)
+            self.assertEqual(response.status_code, code)
+            self.assertEqual(set(response.json()), {"error"})
+
+        accepted_limit = self.client.post("/api/analyses", files=[
+            ("before", ("exact.pdf", b"x" * (20 * 1024 * 1024))),
+            ("after", ("ok.pdf", b"%PDF")),
+        ])
+        self.assertEqual(accepted_limit.status_code, 200)
+
+    def test_real_result_fields_parsed_source_and_file_fallback(self) -> None:
+        config = Settings(_env_file=None, ai_mock=False, storage_dir=Path(self.temp.name))
+        client = TestClient(create_app(config))
+        result = json.loads((BACKEND_DIR / "mocks" / "result.json").read_text(encoding="utf-8"))
+        result["meta"]["provider"] = "test"
+        result["meta"]["documents"][0] = {"doc_id": "b1", "name": "before.docx", "side": "before"}
+        result["documents"][0] = {
+            "doc_id": "b1", "name": "before.docx", "side": "before",
+            "clauses": [{"clause_id": "2.4.7", "section": "2", "text": "2.4.7. Текст из результата ИИ"}],
+        }
+        result["future_field"] = {"still_here": True}
+        with patch("app.services.analyses.run_analysis", return_value=result):
+            response = client.post("/api/analyses", files=[
+                ("before", ("before.docx", docx_bytes("3.4. Источник до"))),
+                ("after", ("after.docx", docx_bytes("3.4. Источник после"))),
+            ])
+        analysis_id = response.json()["id"]
+        base = f"/api/analyses/{analysis_id}"
+        self.assertEqual(client.get(f"{base}/result").json()["future_field"], {"still_here": True})
+        self.assertEqual(
+            client.get(f"{base}/documents/b1/clauses/2.4.7").json()["text"],
+            "2.4.7. Текст из результата ИИ",
+        )
+
+        with patch("app.services.analyses.rebuild_conclusion", return_value="Пересобрано") as rebuild:
+            reviewed = client.patch(f"{base}/findings/f1", json={"status": "accepted"})
+        self.assertEqual(reviewed.status_code, 200)
+        self.assertEqual(reviewed.json()["conclusion_md"], "Пересобрано")
+        self.assertFalse(rebuild.call_args.kwargs["mock"])
+        self.assertEqual(client.get(f"{base}/result").json()["future_field"], {"still_here": True})
+
+        folder = client.app.state.store.directory(analysis_id)
+        stored = deepcopy(client.app.state.store.result(folder))
+        stored["documents"] = []
+        client.app.state.store._write_json(folder / "result.json", stored)
+        self.assertIn("Источник до", client.get(f"{base}/documents/b1/clauses/3.4").json()["text"])
+        self.assertEqual(client.get(f"{base}/documents/b1/clauses/9.9").status_code, 404)
+        metadata = client.app.state.store.documents(folder)
+        metadata[0]["path"] = "absent.docx"
+        client.app.state.store._write_json(folder / "documents.json", metadata)
+        self.assertEqual(client.get(f"{base}/documents/b1/clauses/3.4").status_code, 422)
+        client.close()
+
+    def test_unexpected_error_is_not_exposed(self) -> None:
+        client = TestClient(self.client.app, raise_server_exceptions=False)
+        with patch.object(self.client.app.state.store, "history", side_effect=RuntimeError("secret diagnostics")):
+            with patch("app.main.logging.exception"):
+                response = client.get("/api/analyses")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"error": "Внутренняя ошибка сервера"})
         client.close()

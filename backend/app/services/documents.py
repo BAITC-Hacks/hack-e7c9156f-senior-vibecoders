@@ -6,7 +6,7 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 
-CLAUSE_START = re.compile(r"^\s*(\d+(?:\.\d+)*)(?:\.)?\s+(.+)")
+CLAUSE_START = re.compile(r"^\s*(\d+(?:\.\d+)*(?:\.[A-Za-zА-Яа-яЁё])?)(?:\.)?\s+(.+)")
 
 
 def document_lines(path: Path) -> list[str]:
