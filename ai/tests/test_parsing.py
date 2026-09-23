@@ -49,6 +49,50 @@ def test_clause_text_with_children():
     assert clause_text(doc, "3.4") == "3.4. Состав:\nа. ДИТААД"  # 3.40 не считается подпунктом 3.4
 
 
+def _docx_with_autonumbering(path):
+    import docx
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    d = docx.Document()
+    num = d.part.numbering_part.element
+    num.insert(0, parse_xml(
+        f'<w:abstractNum {nsdecls("w")} w:abstractNumId="90">'
+        '<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl>'
+        '<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1.%2."/></w:lvl>'
+        '<w:lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="russianLower"/><w:lvlText w:val="%3)"/></w:lvl>'
+        '</w:abstractNum>'))
+    num.append(parse_xml(f'<w:num {nsdecls("w")} w:numId="90"><w:abstractNumId w:val="90"/></w:num>'))
+    d.add_paragraph("ПОЛОЖЕНИЕ об Отделе")
+    for level, text in [(0, "Общие положения"), (1, "Отдел входит в ДИТ."), (0, "Функции"),
+                        (1, "Обеспечивает работу серверов."), (1, "Управляет доступом:"),
+                        (2, "выдаёт доступ;"), (2, "блокирует доступ."), (0, "Ответственность")]:
+        p = d.add_paragraph(text)
+        p._p.get_or_add_pPr().append(parse_xml(
+            f'<w:numPr {nsdecls("w")}><w:ilvl w:val="{level}"/><w:numId w:val="90"/></w:numPr>'))
+    t = d.add_table(rows=2, cols=2)
+    t.rows[0].cells[0].text, t.rows[0].cells[1].text = "Подразделение", "Сокращение"
+    t.rows[1].cells[0].text, t.rows[1].cells[1].text = "Отдел инфраструктуры", "ОИ"
+    d.save(str(path))
+
+
+def test_word_autonumbering_and_tables(tmp_path):
+    p = tmp_path / "auto.docx"
+    _docx_with_autonumbering(p)
+    doc = parse_document(p, "after", "a1")
+    assert ids(doc.clauses) == ["0", "1", "1.1", "2", "2.1", "2.2", "2.2.а", "2.2.б", "3", "т1.1", "т1.2"]
+    assert doc.clauses[5].text.startswith("2.2. Управляет доступом")
+    assert "ОИ" in clause_text(doc, "т1.2")
+
+
+def test_fallback_to_paragraph_ids_without_numbering():
+    from ai.parsing import TableRow, _segment_or_paragraphs
+
+    cl = _segment_or_paragraphs(["ПРИКАЗ", "Об утверждении структуры", "Утвердить структуру согласно приложению.",
+                                 TableRow(1, 1, "Отдел | ОИ")])
+    assert ids(cl) == ["абз.1", "абз.2", "абз.3", "т1.1"]
+
+
 @pytest.mark.skipif(not (SAMPLES / "after").exists(), reason="нет samples/")
 def test_real_document_r9():
     doc = parse_document(next((SAMPLES / "after").glob("*.docx")), "after", "a1")

@@ -119,8 +119,48 @@ def extract_all_units(ctx: Ctx) -> list[Unit]:
                 merged[u.id].evidence.extend(u.evidence)
             else:
                 merged[u.id] = u
-    all_units = list(merged.values())
+    all_units = _dedupe(list(merged.values()))
     return [u for u in all_units if _is_org_unit(u) and not _is_root(u, all_units)]
+
+
+_GENERIC_NAMES = {"отдел", "служба", "департамент", "управление", "подразделение", "сектор", "группа", "центр",
+                  "направление", "дирекция", "блок"}
+
+
+def _same_entity(a: Unit, b: Unit) -> bool:
+    if a.side != b.side:
+        return False
+    if a.abbr and b.abbr:
+        return _norm(a.abbr) == _norm(b.abbr)
+    return fuzz.ratio(_norm(a.name), _norm(b.name)) >= 92
+
+
+def _dedupe(units: list[Unit]) -> list[Unit]:
+    """Одна единица из разных документов («ОР» в приказе и «Отдел разработки» в положении) → одна запись.
+    Голое «Отдел»/«Служба» без названия (из фразы «Отдел осуществляет…») — не единица."""
+    units = [u for u in units if _norm(u.name) not in _GENERIC_NAMES or u.abbr]
+    out: list[Unit] = []
+    for u in sorted(units, key=lambda x: (x.abbr is None, -len(x.positions))):  # сначала с аббревиатурой
+        twin = next((o for o in out if _same_entity(o, u)), None)
+        if twin is None:
+            out.append(u)
+            continue
+        twin.evidence.extend(e for e in u.evidence if e not in twin.evidence)
+        twin.positions.extend(p for p in u.positions if _norm(p) not in {_norm(x) for x in twin.positions})
+        twin.parent = twin.parent or u.parent
+    return out
+
+
+def document_subject(doc: DocumentText, units: list[Unit]) -> Unit | None:
+    """Единица, которой посвящён документ: «ПОЛОЖЕНИЕ об Отделе разработки» → Отдел разработки."""
+    head = " ".join(c.text for c in doc.clauses[:4] if c.clause_id in ("0", "абз.1", "абз.2", "абз.3"))
+    head_n = _norm(head)
+    if not head_n:
+        return None
+    hits = [u for u in units if u.side == doc.side and (
+        (u.abbr and re.search(rf"(?<!\w){re.escape(_norm(u.abbr))}(?!\w)", head_n))
+        or fuzz.partial_ratio(_norm(u.name), head_n) >= 90)]
+    return hits[0] if len(hits) == 1 else None
 
 
 _ORG_WORDS = ("департамент", "управлени", "отдел", "служб", "центр", "направлени", "групп", "сектор",

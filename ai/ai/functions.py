@@ -19,6 +19,7 @@ from .context import Ctx, LLMEvidence
 from .llm import call_llm, embed, load_prompt
 from .parsing import render_for_prompt
 from .schemas import Category, DocumentText, Evidence, Finding, Flow, FunctionMapping, Side, Unit, UnitChange
+from .units import document_subject
 
 TOP_K = 8
 DUP_SIM = 0.82
@@ -105,18 +106,24 @@ def extract_functions(ctx: Ctx, doc: DocumentText, units: list[Unit], start: int
         return []
     cat_text = "\n".join(f"- {c['id']}: {c['name']} — {c['hint']}" for c in catalog())
     unit_text = "\n".join(f"- id={u.id} | {u.name}" + (f" ({u.abbr})" if u.abbr else "") for u in side_units)
-    user = f"СТРУКТУРНЫЕ ЕДИНИЦЫ:\n{unit_text}\n\nКАТАЛОГ КАТЕГОРИЙ:\n{cat_text}\n\n{render_for_prompt(doc)}"
+    subject = document_subject(doc, side_units)  # «ПОЛОЖЕНИЕ об Отделе разработки»
+    subject_text = (f"ЭТОТ ДОКУМЕНТ ПОСВЯЩЁН ЕДИНИЦЕ: id={subject.id} | {subject.name}. Функции, где исполнитель "
+                    f"не назван явно («Отдел осуществляет…», «обеспечивает…»), относятся к ней.\n\n") if subject else ""
+    user = (f"СТРУКТУРНЫЕ ЕДИНИЦЫ:\n{unit_text}\n\n{subject_text}КАТАЛОГ КАТЕГОРИЙ:\n{cat_text}\n\n"
+            f"{render_for_prompt(doc)}")
     res = call_llm(load_prompt("functions_extract"), user, LLMFunctions)
 
-    valid_units = {u.id for u in side_units}
     valid_cats = {c["id"] for c in catalog()}
+    by_uid = {u.id: u for u in side_units}
     out: list[Func] = []
     for f in res.functions:
         ev = ctx.evidence(f.evidence)
-        by_uid = {u.id: u for u in side_units}
-        # привязка к единице должна подтверждаться текстом пункта или заголовком родителя —
-        # иначе это функция блока в целом, которую модель ошибочно приписала подразделению
-        uids = [u for u in f.unit_ids if u in by_uid and any(_attributed(doc, e.clause_id, by_uid[u]) for e in ev)]
+        # привязка к единице должна подтверждаться текстом пункта, заголовком родителя или тем, что документ
+        # целиком посвящён этой единице — иначе это функция блока в целом, ошибочно приписанная подразделению
+        uids = [u for u in f.unit_ids if u in by_uid and (
+            (subject is not None and u == subject.id) or any(_attributed(doc, e.clause_id, by_uid[u]) for e in ev))]
+        if not uids and subject is not None and ev:  # «Отдел осуществляет…» в положении об отделе
+            uids = [subject.id]
         for e in ev:  # «5.3. Директоры … ДИТААД и ДОА:» — подпункты относятся ко всем названным единицам
             uids += [u for u in _units_in_headings(doc, e.clause_id, side_units) if u not in uids]
         if not uids or not ev or _STUB_RE.search(f.text):  # без единицы, без источника или заглушка
