@@ -1,0 +1,41 @@
+{
+  "units": [
+    {"id": "dnm-before", "side": "before", "name": "ДНМ", "positions": [], "evidence": [{"doc_id": "before-1", "doc_name": "demo_before.docx", "side": "before", "clause_id": "3.4", "quote": "ДНМ, ДККМ", "verified": true}]},
+    {"id": "dkkm-before", "side": "before", "name": "ДККМ", "positions": ["Директор по контролю качества аудита и методологии", "Менеджер по аудиту"], "evidence": [{"doc_id": "before-1", "doc_name": "demo_before.docx", "side": "before", "clause_id": "3.8", "quote": "Директор по контролю качества аудита и методологии и Менеджер по аудиту", "verified": true}]},
+    {"id": "dnm-after", "side": "after", "name": "ДНМ", "positions": [], "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДНМ, ДККМ, ДИТААД и ДОА", "verified": true}]},
+    {"id": "dkkm-after", "side": "after", "name": "ДККМ", "positions": [], "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДНМ, ДККМ, ДИТААД и ДОА", "verified": true}]},
+    {"id": "ditaad-after", "side": "after", "name": "ДИТААД", "positions": [], "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДИТААД и ДОА", "verified": true}]},
+    {"id": "doa-after", "side": "after", "name": "ДОА", "positions": [], "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДИТААД и ДОА", "verified": true}]}
+  ],
+  "unit_changes": [
+    {"before_unit_ids": ["dnm-before"], "after_unit_ids": ["dnm-after"], "status": "preserved", "rationale": "ДНМ указан в обеих редакциях.", "evidence": [{"doc_id": "before-1", "doc_name": "demo_before.docx", "side": "before", "clause_id": "3.4", "quote": "ДНМ, ДККМ", "verified": true}, {"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДНМ, ДККМ, ДИТААД и ДОА", "verified": true}]},
+    {"before_unit_ids": ["dkkm-before"], "after_unit_ids": ["dkkm-after"], "status": "preserved", "rationale": "ДККМ указан в обеих редакциях.", "evidence": [{"doc_id": "before-1", "doc_name": "demo_before.docx", "side": "before", "clause_id": "3.4", "quote": "ДНМ, ДККМ", "verified": true}, {"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДНМ, ДККМ, ДИТААД и ДОА", "verified": true}]},
+    {"before_unit_ids": [], "after_unit_ids": ["ditaad-after"], "status": "created", "rationale": "ДИТААД появляется в редакции после реорганизации.", "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДИТААД и ДОА", "verified": true}]},
+    {"before_unit_ids": [], "after_unit_ids": ["doa-after"], "status": "created", "rationale": "ДОА появляется в редакции после реорганизации.", "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДИТААД и ДОА", "verified": true}]}
+  ],
+  "function_mappings": [],
+  "findings": [
+    {"id": "f1", "type": "structure_change", "severity": "medium", "title": "Созданы ДИТААД и ДОА", "description": "В редакции после реорганизации п. 3.4 перечисляет два новых подразделения.", "recommendation": "Проверить распределение функций и должностей новых подразделений.", "unit_ids": ["ditaad-after", "doa-after"], "evidence": [{"doc_id": "after-1", "doc_name": "demo_after.docx", "side": "after", "clause_id": "3.4", "quote": "ДИТААД и ДОА", "verified": true}]}
+  ],
+  "rejected_findings": [
+    {"id": "f2", "type": "function_loss", "severity": "low", "title": "Возможная утрата должностей ДККМ", "description": "Из кратких выдержек нельзя подтвердить утрату функций.", "unit_ids": ["dkkm-before", "dkkm-after"], "evidence": [{"doc_id": "before-1", "doc_name": "demo_before.docx", "side": "before", "clause_id": "3.8", "quote": "Менеджер по аудиту", "verified": true}], "critic": {"verdict": "refuted", "argument": "Нет достаточных данных об утрате функций.", "counter_evidence": []}}
+  ],
+  "conclusion_md": "# Демонстрационное заключение\n\nВ учебном комплекте ДНМ и ДККМ сохранены; ДИТААД и ДОА добавлены. Изменён состав должностей ДККМ. Выводы требуют проверки по полным документам.",
+  "documents": [
+    {"doc_id": "before-1", "name": "demo_before.docx", "side": "before", "clauses": [
+      {"clause_id": "3.4", "section": "3", "text": "3.4. В БВА входят ДНМ, ДККМ и Директор направления внутреннего аудита."},
+      {"clause_id": "3.8", "section": "3", "text": "3.8. В ДККМ предусмотрены Директор по контролю качества аудита и методологии и Менеджер по аудиту."}
+    ]},
+    {"doc_id": "after-1", "name": "demo_after.docx", "side": "after", "clauses": [
+      {"clause_id": "3.4", "section": "3", "text": "3.4. В БВА входят ДНМ, ДККМ, ДИТААД и ДОА."},
+      {"clause_id": "3.9", "section": "3", "text": "3.9. В ДККМ предусмотрены обновлённые должности."}
+    ]}
+  ],
+  "alignments": [
+    {"before_clause_id": "3.4", "after_clause_id": "3.4", "status": "modified", "similarity": 0.6},
+    {"before_clause_id": "3.8", "after_clause_id": "3.9", "status": "modified", "similarity": 0.5}
+  ],
+  "flows": [],
+  "categories": [],
+  "meta": {"model": "fixture", "provider": "mock", "duration_s": 0, "documents": [{"doc_id": "before-1", "name": "demo_before.docx", "side": "before"}, {"doc_id": "after-1", "name": "demo_after.docx", "side": "after"}]}
+}
