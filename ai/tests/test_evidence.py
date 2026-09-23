@@ -104,3 +104,37 @@ def test_verify_result_all_locations(real_doc):
     assert result.model_dump() == original
     checked.documents[0].clauses.clear()
     assert result.documents[0].clauses
+
+
+def test_offline_mock_is_reproducible_and_matches_golden():
+    import json
+    import runpy
+
+    root = Path(__file__).resolve().parents[2]
+    builder = runpy.run_path(str(root / "ai/scripts/build_mock.py"))
+    result = builder["build_mock"]()
+    checked = AnalysisResult.model_validate_json((root / "mocks/result.json").read_text(encoding="utf-8"))
+    assert result.model_dump() == checked.model_dump()
+    builder["validate_mock"](checked)
+    assert checked.meta.model == "mock"
+    assert 10 <= len(checked.conclusion_md.splitlines()) <= 20
+    golden = json.loads((root / "ai/evals/golden_r8_r9.json").read_text(encoding="utf-8"))
+    units = {u.id: u for u in checked.units}
+    for fact in golden["unit_changes"]:
+        assert any(
+            change.status == fact["status"]
+            and any(units[uid].abbr == fact["after_abbr"] for uid in change.after_unit_ids)
+            and any(ev.side == fact["evidence"]["side"] and ev.clause_id == fact["evidence"]["clause_id"]
+                    for ev in change.evidence)
+            for change in checked.unit_changes
+        ), fact
+    for fact in golden["alignments"]:
+        assert any(all(getattr(row, key) == value for key, value in fact.items())
+                   for row in checked.alignments), fact
+    for fact in golden["findings"]:
+        assert any(
+            finding.type == fact["type"]
+            and set(fact["unit_abbrs"]) <= {units[uid].abbr for uid in finding.unit_ids}
+            and set(fact["evidence_clause_ids"]) <= {ev.clause_id for ev in finding.evidence}
+            for finding in checked.findings
+        ), fact
