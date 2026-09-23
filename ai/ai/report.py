@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .context import Ctx
 from .llm import call_llm, load_prompt
+from .refcheck import sanitize_conclusion
 from .schemas import AnalysisResult, Finding, Unit, UnitChange
 
 _SEV = {"high": 0, "medium": 1, "low": 2}
@@ -45,4 +46,5 @@ def rebuild_conclusion(result: AnalysisResult) -> str:
     """Пересборка заключения после проверки выводов человеком (для PATCH …/findings/{id} бэкенда).
     Учитывает и rejected_findings: вывод, опровергнутый критиком, но принятый сотрудником, попадает в заключение."""
     ctx = Ctx(result.documents)
-    return write_conclusion(ctx, result.units, result.unit_changes, result.findings + result.rejected_findings)
+    md = write_conclusion(ctx, result.units, result.unit_changes, result.findings + result.rejected_findings)
+    return sanitize_conclusion(result.model_copy(update={"conclusion_md": md}))

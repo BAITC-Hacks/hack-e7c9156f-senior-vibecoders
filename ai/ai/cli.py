@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import llm
 from .pipeline import run_analysis
+from .refcheck import extract_refs
 
 
 def _expand(patterns: list[str]) -> list[Path]:
@@ -40,6 +41,8 @@ def main() -> None:
     print(f"Единиц: {len(result.units)}, изменений: {dict(Counter(c.status for c in result.unit_changes))}")
     print(f"Выводы: {dict(Counter(f.type for f in result.findings))}, отклонено критиком: {len(result.rejected_findings)}")
     print(f"Проверенных ссылок: {sum(e.verified for e in ev)}/{len(ev)}")
+    refs = extract_refs(result.conclusion_md)
+    print(f"Ссылок в заключении: {len(refs)}, неподтверждённых: {result.conclusion_md.count('⚠ ссылка не подтверждена')}")
     for model, u in llm.usage.items():
         print(f"  {model}: вызовов {u['calls']}, токенов вход {u['input']:,} / выход {u['output']:,}")
     if not llm.usage:

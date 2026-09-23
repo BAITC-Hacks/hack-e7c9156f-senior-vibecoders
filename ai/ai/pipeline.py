@@ -15,6 +15,7 @@ from .evidence import verify_result
 from .functions import analyze_functions, apply_rejected_losses, build_flows, categories
 from .llm import model_name, provider
 from .parsing import parse_documents
+from .refcheck import sanitize_conclusion
 from .report import write_conclusion
 from .schemas import AnalysisResult, DocumentMeta, Meta
 from .units import extract_all_units, match_units, structure_findings
@@ -77,6 +78,8 @@ def run_analysis(before_files: list[Path], after_files: list[Path],
         "meta": draft.meta.model_copy(update={"duration_s": round(time.monotonic() - started, 1)}),
     })
     result = verify_result(result)  # контр-цитаты критика тоже проверяются
+    # ссылки внутри текста заключения тоже проверяет код: неподтверждённая помечается, а не остаётся молча
+    result = result.model_copy(update={"conclusion_md": sanitize_conclusion(result)})
     if on_progress:
         on_progress("report", 1.0)
     return result
