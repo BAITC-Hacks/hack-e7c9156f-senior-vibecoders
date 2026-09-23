@@ -1,9 +1,9 @@
 import { mockClause, mockResult } from './mocks'
 import { createLocalPreview } from './localPreview'
-import type { AnalysisResult, AnalysisStatus, ClauseResponse } from './types'
+import type { AnalysisResult, AnalysisStatus, AnalysisSummary, ClauseResponse, ReviewRequest } from './types'
 
-const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-export const useMocks = import.meta.env.VITE_USE_MOCKS !== 'false'
+const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
+export const useMocks = import.meta.env.VITE_USE_MOCKS === 'true'
 const mockStarts = new Map<string, number>()
 const mockResults = new Map<string, AnalysisResult>()
 
@@ -66,6 +66,17 @@ export const api = {
   async getResult(id: string): Promise<AnalysisResult> {
     if (useMocks) { await mockDelay(); return mockResults.get(id) ?? mockResult }
     return request(`/api/analyses/${encodeURIComponent(id)}/result`)
+  },
+  async listAnalyses(): Promise<AnalysisSummary[]> {
+    if (useMocks) return []
+    return request('/api/analyses')
+  },
+  async reviewFinding(id: string, findingId: string, review: ReviewRequest): Promise<AnalysisResult> {
+    return request(`/api/analyses/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review),
+    })
   },
   async getClause(id: string, docId: string, clauseId: string): Promise<ClauseResponse> {
     if (useMocks) { await mockDelay(300); return mockClause(mockResults.get(id) ?? mockResult, docId, clauseId) }

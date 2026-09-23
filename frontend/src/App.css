@@ -115,4 +115,29 @@ button:focus-visible,.file-button:focus-within{outline:3px solid #83bef0;outline
 .rejected-section h3{margin-bottom:7px}
 .rejected-section>p{color:#657a8e;font-size:14px}
 .finding-rejected{background:#f8fafc;border-style:dashed}
+.history-section{margin:45px 0 60px;padding-top:24px;border-top:1px solid #dce4ec}
+.history-section h2{font-size:19px;margin:0 0 15px}
+.history-section>p{font-size:14px;color:#62788c}
+.history-section ul{list-style:none;margin:0;padding:0;border-top:1px solid #e0e6ec}
+.history-section li{border-bottom:1px solid #e0e6ec}
+.history-section button{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;padding:15px 4px;border:0;background:none;text-align:left;color:#244963;cursor:pointer}
+.history-section button:hover{background:#eef4f8}
+.history-section button strong{font-size:14px;overflow-wrap:anywhere}
+.history-section button span{flex:none;font-size:12px;color:#697c8e}
+.review-count{margin:0 0 20px;color:#365e76;font-size:14px;font-weight:700}
+.finding-review{margin-top:20px;padding-top:18px;border-top:1px solid #e0e8ed}
+.finding-review label{display:block;margin:14px 0 6px;color:#486174;font-size:12px;font-weight:700}
+.finding-review textarea{display:block;box-sizing:border-box;width:100%;min-height:60px;resize:vertical;border:1px solid #bfcbd4;border-radius:6px;padding:10px;font:inherit;font-size:13px;color:#203f53;background:#fff}
+.review-status{font-size:13px;color:#6c7983;font-weight:700}
+.review-status.accepted{color:#207052}
+.review-status.rejected{color:#a5493d}
+.review-status small{font-size:12px;font-weight:400}
+.finding-review .review-comment{margin:8px 0 0;color:#526b7c}
+.review-actions{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:11px}
+.review-actions button{border:1px solid #a9bfc6;border-radius:6px;background:#fff;padding:9px 13px;color:#285d53;font-size:13px;font-weight:700;cursor:pointer}
+.review-actions button+button{color:#9a493d;border-color:#d5b0a8}
+.review-actions button:disabled{opacity:.5;cursor:wait}
+.review-actions span{color:#637789;font-size:12px}
+.finding-review .alert{margin:12px 0 0}
 @media(max-width:620px){.unit-grid{grid-template-columns:1fr}}
+@media(max-width:620px){.history-section button{align-items:flex-start;flex-direction:column;gap:5px}.history-section button span{flex:auto}}

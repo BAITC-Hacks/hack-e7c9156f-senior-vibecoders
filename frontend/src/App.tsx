@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, useMocks } from './api/client'
-import type { AnalysisResult, AnalysisStatus, ClauseResponse, Evidence, Finding, Side } from './api/types'
+import type { AnalysisResult, AnalysisStatus, AnalysisSummary, ClauseResponse, Evidence, Finding, ReviewRequest, Side } from './api/types'
 import { DocumentComparison } from './components/DocumentComparison'
 import { FunctionFlows } from './components/FunctionFlows'
 import './App.css'
@@ -43,9 +43,19 @@ function Conclusion({ text }: { text: string }) {
   return <div className="conclusion-text">{text.split('\n').filter(Boolean).map((line, index) => <p key={index}>{line.split(/(\*\*[^*]+\*\*)/g).map((part, i) => part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part)}</p>)}</div>
 }
 
-function FindingCard({ finding, result, onOpen, rejected = false }: { finding: Finding; result: AnalysisResult; onOpen: (source: Evidence) => void; rejected?: boolean }) {
+function FindingCard({ finding, result, onOpen, onReview, reviewing, reviewDisabled, reviewError, rejected = false }: {
+  finding: Finding
+  result: AnalysisResult
+  onOpen: (source: Evidence) => void
+  onReview?: (findingId: string, review: ReviewRequest) => void
+  reviewing: boolean
+  reviewDisabled: boolean
+  reviewError?: string
+  rejected?: boolean
+}) {
+  const [comment, setComment] = useState('')
   const verdict = finding.critic
-  return <article className={`finding-card ${rejected ? 'finding-rejected' : ''}`}>
+  return <article className={`finding-card ${(rejected && finding.review?.status !== 'accepted') || finding.review?.status === 'rejected' ? 'finding-rejected' : ''}`}>
     <div className="finding-meta"><span className={`severity ${finding.severity}`}>{finding.severity === 'high' ? 'Высокий' : finding.severity === 'medium' ? 'Средний' : 'Низкий'} приоритет</span><span>{finding.type === 'structure_change' ? 'Структура' : finding.type === 'function_loss' ? 'Потеря функции' : finding.type === 'duplication' ? 'Дублирование' : 'Конфликт интересов'}</span></div>
     <h3>{finding.title}</h3><p>{finding.description}</p>
     {finding.unit_ids.length > 0 && <p className="finding-units">Подразделения: {finding.unit_ids.map((id) => result.units.find((unit) => unit.id === id)?.abbr || result.units.find((unit) => unit.id === id)?.name || id).join(', ')}</p>}
@@ -53,6 +63,21 @@ function FindingCard({ finding, result, onOpen, rejected = false }: { finding: F
     {finding.recommendation && !rejected && <p className="recommendation"><b>Рекомендация:</b> {finding.recommendation}</p>}
     <SourceButton evidence={finding.evidence} onOpen={onOpen} />
     {verdict && <div className="critic-verdict"><strong>{verdict.verdict === 'upheld' ? 'Вывод подтверждён критиком' : verdict.verdict === 'refuted' ? 'Вывод опровергнут критиком' : 'Вывод требует проверки'}</strong><p>{verdict.argument}</p>{verdict.counter_evidence.length > 0 && <><span>Контраргументы:</span><SourceButton evidence={verdict.counter_evidence} onOpen={onOpen} /></>}</div>}
+    {onReview && <div className="finding-review">
+      <div className={`review-status ${finding.review?.status ?? ''}`}>
+        {finding.review?.status === 'accepted' ? 'Подтверждено сотрудником' : finding.review?.status === 'rejected' ? 'Отклонено сотрудником' : 'Не проверено'}
+        {finding.review?.reviewed_at && <small> · {new Date(finding.review.reviewed_at).toLocaleString('ru-RU')}</small>}
+      </div>
+      {finding.review?.comment && <p className="review-comment">{finding.review.comment}</p>}
+      <label htmlFor={`comment-${finding.id}`}>Комментарий</label>
+      <textarea id={`comment-${finding.id}`} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Причина решения (необязательно)" rows={2} />
+      <div className="review-actions">
+        <button type="button" disabled={reviewDisabled} onClick={() => onReview(finding.id, { status: 'accepted', comment: comment.trim() || undefined })}>Подтвердить</button>
+        <button type="button" disabled={reviewDisabled} onClick={() => onReview(finding.id, { status: 'rejected', comment: comment.trim() || undefined })}>Отклонить</button>
+        {reviewing && <span role="status">Пересобираем заключение…</span>}
+      </div>
+      {reviewError && <p className="alert" role="alert">{reviewError}</p>}
+    </div>}
   </article>
 }
 
@@ -71,6 +96,23 @@ function App() {
   const [sourceError, setSourceError] = useState<string | null>(null)
   const [reportBusy, setReportBusy] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
+  const [history, setHistory] = useState<AnalysisSummary[]>([])
+  const [historyLoading, setHistoryLoading] = useState(!useMocks)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [historyRefresh, setHistoryRefresh] = useState(0)
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+  const [reviewError, setReviewError] = useState<{ id: string; message: string } | null>(null)
+
+  useEffect(() => {
+    if (useMocks || view !== 'upload') return
+    let cancelled = false
+    api.listAnalyses().then((items) => {
+      if (!cancelled) { setHistory(items); setHistoryError(null); setHistoryLoading(false) }
+    }).catch((cause: unknown) => {
+      if (!cancelled) { setHistoryError(cause instanceof Error ? cause.message : 'Не удалось загрузить историю.'); setHistoryLoading(false) }
+    })
+    return () => { cancelled = true }
+  }, [view, historyRefresh])
 
   useEffect(() => {
     if (view !== 'progress' || !analysisId) return
@@ -116,6 +158,19 @@ function App() {
       setError(cause instanceof Error ? cause.message : 'Не удалось запустить анализ.')
     } finally { setBusy(false) }
   }
+  const openHistory = (item: AnalysisSummary) => {
+    if (item.status === 'failed') { setError('Этот анализ завершился с ошибкой. Запустите новый анализ.'); return }
+    setError(null); setStatus(null); setResult(null); setAnalysisId(item.id); setView('progress')
+  }
+  const reviewFinding = async (findingId: string, review: ReviewRequest) => {
+    if (!analysisId || reviewingId) return
+    setReviewingId(findingId); setReviewError(null)
+    try {
+      setResult(await api.reviewFinding(analysisId, findingId, review))
+    } catch (cause) {
+      setReviewError({ id: findingId, message: cause instanceof Error ? cause.message : 'Не удалось сохранить решение.' })
+    } finally { setReviewingId(null) }
+  }
   const openSource = (evidence: Evidence) => { setClause(null); setSourceError(null); setSource(evidence) }
   const downloadReport = async () => {
     if (!analysisId) return
@@ -125,7 +180,7 @@ function App() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `analysis-${analysisId}.docx`
+      link.download = `zaklyuchenie_${analysisId}.docx`
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (cause) {
@@ -137,9 +192,12 @@ function App() {
   const created = result?.unit_changes.filter((change) => change.status === 'created').length ?? 0
   const abolished = result?.unit_changes.filter((change) => change.status === 'abolished').length ?? 0
   const isLocalPreview = result?.meta.model === 'local-preview'
+  const isServerMock = !useMocks && result?.meta.provider === 'mock'
+  const reviewedCount = result ? [...result.findings, ...result.rejected_findings].filter((finding) => finding.review).length : 0
+  const totalFindings = result ? result.findings.length + result.rejected_findings.length : 0
 
   return <div className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true">◉</span><span>Kazakhtelecom <span className="brand-light">Business</span><small>Анализ структуры</small></span></div><span className="topbar-note">ОРГАНИЗАЦИОННЫЙ АУДИТ</span><span className="mode-pill">{useMocks ? 'Демо-режим' : 'Подключено к API'}</span></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true">◉</span><span>Kazakhtelecom <span className="brand-light">Business</span><small>Анализ структуры</small></span></div><span className="topbar-note">ОРГАНИЗАЦИОННЫЙ АУДИТ</span><span className="mode-pill">{useMocks ? 'Демо-режим' : 'Режим API'}</span></header>
     <main className="main-content">
       <nav className="journey" aria-label="Этапы анализа"><span className={view === 'upload' ? 'current' : 'complete'}>01 <b>Документы</b></span><i /><span className={view === 'progress' ? 'current' : view === 'result' ? 'complete' : ''}>02 <b>Анализ</b></span><i /><span className={view === 'result' ? 'current' : ''}>03 <b>Результат</b></span></nav>
       {view === 'upload' && <>
@@ -148,11 +206,14 @@ function App() {
         {error && <div className="alert" role="alert">{error}</div>}
         <div className="action-row"><button className="primary-button" disabled={busy || !before.length || !after.length} onClick={() => void start(false)}>{busy ? 'Читаем файлы…' : useMocks ? 'Сравнить тексты файлов' : 'Анализировать документы'} <span>→</span></button><span className="action-or">или</span><button className="text-button" disabled={busy} onClick={() => void start(true)}>Запустить демо-комплект ↗</button></div>
         <p className="helper-line">Для сравнения загрузите по одному файлу в каждую колонку. {useMocks && 'В демо-режиме файлы читаются в браузере; выводы ИИ не формируются.'}</p>
+        {!useMocks && <section className="history-section" aria-label="История анализов"><h2>История анализов</h2>{historyLoading ? <p role="status">Загружаем историю…</p> : historyError ? <div className="history-error"><p className="alert" role="alert">{historyError}</p><button type="button" className="text-button" onClick={() => { setHistoryLoading(true); setHistoryRefresh((value) => value + 1) }}>Повторить</button></div> : history.length ? <ul>{history.map((item) => <li key={item.id}><button type="button" onClick={() => openHistory(item)}><strong>{item.documents.map((document) => document.name).join(' · ') || 'Без названия'}</strong><span>{new Date(item.created_at).toLocaleString('ru-RU')} · {item.status === 'done' ? 'Готово' : item.status === 'failed' ? 'Ошибка' : 'В обработке'}{item.counts && ` · ${item.counts.findings} выводов`}</span></button></li>)}</ul> : <p>Пока нет сохранённых анализов.</p>}</section>}
       </>}
       {view === 'progress' && <section className="progress-layout"><div className="eyebrow">ОБРАБОТКА ДОКУМЕНТОВ</div><h1>Сопоставляем документы<span className="moving-dots">...</span></h1><p className="intro">Готовим текст двух редакций и находим различия.</p><div className="progress-card"><div className="progress-summary"><div><span className="small-label">ТЕКУЩИЙ ЭТАП</span><h2>{stepNames[status?.step || ''] || (status?.status === 'queued' ? 'В очереди' : 'Подготовка анализа')}</h2></div><strong>{Math.round((status?.progress ?? 0) * 100)}%</strong></div><div className="progress-track"><div style={{ width: `${Math.round((status?.progress ?? 0) * 100)}%` }} /></div><div className="progress-steps"><span className="active">01 Чтение файлов</span><span className={(status?.progress ?? 0) > .3 ? 'active' : ''}>02 Сравнение</span><span className={(status?.progress ?? 0) > .7 ? 'active' : ''}>03 Проверка источников</span></div></div>{error && <div className="alert" role="alert">{error}<div><button className="text-button" onClick={() => { setError(null); setView('upload') }}>Вернуться к документам</button></div></div>}</section>}
       {view === 'result' && result && <>
         <div className="result-heading"><div><div className="eyebrow">{isLocalPreview ? 'ЛОКАЛЬНЫЙ ПРЕДПРОСМОТР' : 'АНАЛИЗ ЗАВЕРШЁН'} · {result.meta.documents.length} ДОКУМЕНТА</div><h1>{isLocalPreview ? 'Текст загруженных файлов' : 'Результаты сравнения'}</h1><p>{isLocalPreview ? 'Показан извлечённый текст и технические различия. Выводы ИИ появятся после подключения backend.' : 'Каждый вывод можно проверить по исходному пункту документа.'}</p></div><div className="result-actions">{!useMocks && <button className="outline-button" disabled={reportBusy} onClick={() => void downloadReport()}>{reportBusy ? 'Скачиваем…' : 'Скачать отчёт DOCX'}</button>}<button className="outline-button" onClick={() => { setView('upload'); setResult(null); setStatus(null); setAnalysisId(null); setError(null); setReportError(null) }}>+ Новый анализ</button></div></div>
         {reportError && <div className="alert" role="alert">{reportError}</div>}
+        {isServerMock && <div className="alert" role="status">Это демонстрационный результат сервера. Для анализа загруженных файлов установите AI_MOCK=false на backend.</div>}
+        {!useMocks && <p className="review-count">Проверено {reviewedCount} из {totalFindings} выводов</p>}
         {!isLocalPreview && <div className="metrics"><div><strong>{created}</strong><span>Создано</span></div><div><strong>{abolished}</strong><span>Упразднено</span></div><div><strong>{count('function_loss')}</strong><span>Потерь функций</span></div><div><strong>{count('duplication')}</strong><span>Дублирований</span></div><div><strong>{count('conflict_of_interest')}</strong><span>Конфликтов</span></div></div>}
         <div className="result-panel"><div className="tabs" role="tablist" aria-label="Разделы результата">{tabs.filter((item) => !isLocalPreview || item.id === 'comparison').map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
           {tab === 'comparison' && <DocumentComparison key={analysisId} result={result} />}
@@ -160,7 +221,7 @@ function App() {
           {tab === 'units' && <section className="tab-content"><div className="section-kicker">СТРУКТУРА</div><h2>Изменения подразделений</h2><div className="table-wrap"><table><thead><tr><th>До</th><th>После</th><th>Статус</th><th>Обоснование и источник</th></tr></thead><tbody>{result.unit_changes.map((change, index) => <tr key={index}><td>{change.before_unit_ids.map(unitName).join(', ') || '—'}</td><td>{change.after_unit_ids.map(unitName).join(', ') || '—'}</td><td><span className={`status-badge ${change.status}`}>{statusNames[change.status]}</span></td><td><p className="table-rationale">{change.rationale}</p><SourceButton evidence={change.evidence} onOpen={openSource} /></td></tr>)}</tbody></table></div>{!result.unit_changes.length && <p className="empty-state">Изменения подразделений не найдены.</p>}{result.units.length > 0 && <details className="unit-details"><summary>Состав подразделений ({result.units.length})</summary><div className="unit-grid">{result.units.map((unit) => <article key={unit.id}><span>{unit.side === 'before' ? 'ДО' : 'ПОСЛЕ'}</span><h3>{unit.name}</h3>{unit.parent && <p>В составе: {unitName(unit.parent)}</p>}{unit.positions.length > 0 && <p>Должности: {unit.positions.join(', ')}</p>}<SourceButton evidence={unit.evidence} onOpen={openSource} /></article>)}</div></details>}</section>}
           {tab === 'functions' && <section className="tab-content"><div className="section-kicker">ФУНКЦИИ</div><h2>Сопоставление функций</h2>{result.function_mappings.length ? <div className="table-wrap"><table><thead><tr><th>Функция / категория</th><th>До → после</th><th>Статус</th><th>Уверенность</th><th>Источник</th></tr></thead><tbody>{result.function_mappings.map((mapping) => <tr key={mapping.id}><td><strong>{mapping.function}</strong><small className="function-category">{result.categories.find((item) => item.id === mapping.category_id)?.name ?? mapping.category_id}</small></td><td>{mapping.before_unit_id ? unitName(mapping.before_unit_id) : '—'} → {mapping.after_unit_ids.map(unitName).join(', ') || '—'}</td><td><span className={`status-badge ${mapping.status}`}>{statusNames[mapping.status]}</span></td><td>{Math.round(mapping.confidence * 100)}%</td><td><SourceButton evidence={mapping.evidence} onOpen={openSource} /></td></tr>)}</tbody></table></div> : <p className="empty-state">В этом результате сопоставления функций нет.</p>}</section>}
           {tab === 'flows' && <section className="tab-content"><div className="section-kicker">ПЕРЕМЕЩЕНИЕ ФУНКЦИЙ</div><h2>Как распределились функции</h2><FunctionFlows result={result} onOpenSource={openSource} /></section>}
-          {tab === 'risks' && <section className="tab-content"><div className="section-kicker">НАХОДКИ</div><h2>Риски и рекомендации</h2>{result.findings.length ? <div className="finding-list">{result.findings.map((finding) => <FindingCard key={finding.id} finding={finding} result={result} onOpen={openSource} />)}</div> : <p className="empty-state">Подтверждённых рисков в этом результате нет.</p>}{result.rejected_findings.length > 0 && <div className="rejected-section"><h3>Отклонённые выводы</h3><p>Агент-критик опроверг эти предположения. Они не включены в заключение.</p><div className="finding-list">{result.rejected_findings.map((finding) => <FindingCard key={finding.id} finding={finding} result={result} onOpen={openSource} rejected />)}</div></div>}</section>}
+          {tab === 'risks' && <section className="tab-content"><div className="section-kicker">НАХОДКИ</div><h2>Риски и рекомендации</h2>{result.findings.length ? <div className="finding-list">{result.findings.map((finding) => <FindingCard key={finding.id} finding={finding} result={result} onOpen={openSource} onReview={useMocks ? undefined : reviewFinding} reviewing={reviewingId === finding.id} reviewDisabled={reviewingId !== null} reviewError={reviewError?.id === finding.id ? reviewError.message : undefined} />)}</div> : <p className="empty-state">Подтверждённых рисков в этом результате нет.</p>}{result.rejected_findings.length > 0 && <div className="rejected-section"><h3>Опровергнуто агентом-критиком ({result.rejected_findings.length})</h3><p>Сотрудник может подтвердить вывод и включить его в заключение.</p><div className="finding-list">{result.rejected_findings.map((finding) => <FindingCard key={finding.id} finding={finding} result={result} onOpen={openSource} onReview={useMocks ? undefined : reviewFinding} reviewing={reviewingId === finding.id} reviewDisabled={reviewingId !== null} reviewError={reviewError?.id === finding.id ? reviewError.message : undefined} rejected />)}</div></div>}</section>}
         </div>
       </>}
     </main>
