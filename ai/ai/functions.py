@@ -13,6 +13,7 @@ from typing import Literal
 import numpy as np
 import yaml
 from pydantic import BaseModel
+from rapidfuzz import fuzz
 
 from .context import Ctx, LLMEvidence
 from .llm import call_llm, embed, load_prompt
@@ -112,7 +113,10 @@ def extract_functions(ctx: Ctx, doc: DocumentText, units: list[Unit], start: int
     out: list[Func] = []
     for f in res.functions:
         ev = ctx.evidence(f.evidence)
-        uids = [u for u in f.unit_ids if u in valid_units]
+        by_uid = {u.id: u for u in side_units}
+        # привязка к единице должна подтверждаться текстом пункта или заголовком родителя —
+        # иначе это функция блока в целом, которую модель ошибочно приписала подразделению
+        uids = [u for u in f.unit_ids if u in by_uid and any(_attributed(doc, e.clause_id, by_uid[u]) for e in ev)]
         for e in ev:  # «5.3. Директоры … ДИТААД и ДОА:» — подпункты относятся ко всем названным единицам
             uids += [u for u in _units_in_headings(doc, e.clause_id, side_units) if u not in uids]
         if not uids or not ev or _STUB_RE.search(f.text):  # без единицы, без источника или заглушка
@@ -121,6 +125,24 @@ def extract_functions(ctx: Ctx, doc: DocumentText, units: list[Unit], start: int
                         text=f.text.strip(), category_id=f.category_id if f.category_id in valid_cats else "other",
                         evidence=ev))
     return out
+
+
+def _context_texts(doc: DocumentText, clause_id: str) -> list[str]:
+    """Текст пункта и заголовки его родителей (без раздела верхнего уровня)."""
+    texts = {c.clause_id: c.text for c in doc.clauses}
+    parts = clause_id.split("#", 1)[0].split(".")
+    out = [texts.get(clause_id, "")]
+    out += [texts.get(".".join(parts[:d]), "").split("\n", 1)[0] for d in range(len(parts) - 1, 1, -1)]
+    return [t for t in out if t]
+
+
+def _attributed(doc: DocumentText, clause_id: str, unit: Unit) -> bool:
+    for t in _context_texts(doc, clause_id):
+        if unit.abbr and re.search(rf"(?<!\w){re.escape(unit.abbr)}(?!\w)", t):
+            return True
+        if fuzz.partial_ratio(unit.name.lower().replace("ё", "е"), t.lower().replace("ё", "е")) >= 85:
+            return True
+    return False
 
 
 def _units_in_headings(doc: DocumentText, clause_id: str, units: list[Unit]) -> list[str]:
