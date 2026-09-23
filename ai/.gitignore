@@ -1,0 +1,3 @@
+.cache/
+result*.json
+*.egg-info/
