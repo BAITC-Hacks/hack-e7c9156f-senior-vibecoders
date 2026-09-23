@@ -1,0 +1,22 @@
+{
+  "unit_changes": [
+    {"after_abbr": "ДИТААД", "status": "created", "evidence": {"side": "after", "clause_id": "3.4.а"}},
+    {"after_abbr": "ДОА", "status": "created", "evidence": {"side": "after", "clause_id": "3.4.б"}},
+    {"after_abbr": "ДНМ", "status": "preserved", "evidence": {"side": "after", "clause_id": "3.4.в"}},
+    {"after_abbr": "ДККМ", "status": "preserved", "evidence": {"side": "after", "clause_id": "3.4.г"}}
+  ],
+  "alignments": [
+    {"before_clause_id": "3.8", "after_clause_id": "3.9", "status": "moved"},
+    {"before_clause_id": "3.4.а", "after_clause_id": "3.4.в", "status": "moved"},
+    {"before_clause_id": "3.4.б", "after_clause_id": "3.4.г", "status": "moved"},
+    {"before_clause_id": null, "after_clause_id": "3.4.а", "status": "added"},
+    {"before_clause_id": null, "after_clause_id": "3.4.б", "status": "added"},
+    {"before_clause_id": "3.9", "after_clause_id": "3.10", "status": "moved"},
+    {"before_clause_id": "5.4.4.а", "after_clause_id": "5.3.3.а", "status": "moved"},
+    {"before_clause_id": "5.4.4.б", "after_clause_id": "5.3.3.б", "status": "moved"},
+    {"before_clause_id": "5.5.6", "after_clause_id": "5.5.4", "status": "moved"}
+  ],
+  "findings": [
+    {"type": "structure_change", "unit_abbrs": ["ДИТААД", "ДОА"], "evidence_clause_ids": ["3.4"]}
+  ]
+}
