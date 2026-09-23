@@ -25,7 +25,7 @@ DUP_SIM = 0.82
 MAX_DUP_PAIRS = 25
 MAX_EVIDENCE = 6
 # типовые обязанности любого руководителя — не предмет поиска дублей и потерь
-GENERIC_CATEGORIES = {"management", "other", "staff_development"}
+GENERIC_CATEGORIES = {"management", "staff_development"}
 _STUB_RE = re.compile(r"\bне (установлен|определен|указан|предусмотрен)", re.I)
 
 
