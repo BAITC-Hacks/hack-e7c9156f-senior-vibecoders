@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
@@ -19,6 +20,16 @@ DEMO_AFTER = [
     "3.4. В БВА входят ДНМ, ДККМ, ДИТААД и ДОА.",
     "3.9. В ДККМ предусмотрены обновлённые должности.",
 ]
+
+WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
+def storage_filename(name: str) -> str:
+    basename = name.replace("\\", "/").rsplit("/", 1)[-1]
+    safe = re.sub(r'[<>:"|?*\x00-\x1f]', "_", basename).rstrip(" .")
+    if safe.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
+        safe = f"_{safe}"
+    return safe
 
 
 class AnalysisStore:
@@ -53,9 +64,11 @@ class AnalysisStore:
         for side, name, content in files:
             counts[side] += 1
             doc_id = f"{side}-{counts[side]}"
-            path = folder / f"{doc_id}{Path(name).suffix.lower()}"
+            doc_folder = folder / doc_id
+            doc_folder.mkdir()
+            path = doc_folder / storage_filename(name)
             path.write_bytes(content)
-            documents.append({"doc_id": doc_id, "name": name, "side": side, "path": path.name})
+            documents.append({"doc_id": doc_id, "name": name, "side": side, "path": path.relative_to(folder).as_posix()})
         self._write_json(folder / "documents.json", documents)
         created_at = datetime.now(timezone.utc).isoformat()
         self._write_json(folder / "status.json", AnalysisStatus(id=analysis_id, created_at=created_at, status="queued", progress=0).model_dump(exclude_none=True))
@@ -161,7 +174,12 @@ class AnalysisStore:
         self._write_json(folder / "status.json", AnalysisStatus(id=analysis_id, created_at=previous.created_at, status="done", step="report", progress=1).model_dump(exclude_none=True))
 
     def _fail(self, folder: Path, analysis_id: str, exc: Exception) -> None:
-        message = "Пакет ИИ недоступен" if isinstance(exc, ModuleNotFoundError) else "Не удалось выполнить анализ"
+        if isinstance(exc, ModuleNotFoundError):
+            message = "Пакет ИИ недоступен"
+        elif isinstance(exc, KeyError) and exc.args and exc.args[0] in {"OPENAI_API_KEY", "NVIDIA_API_KEY", "NVIDIA_MODEL"}:
+            message = "ИИ не настроен: заполните ai/.env"
+        else:
+            message = "Не удалось выполнить анализ"
         self._write_json(folder / "status.json", AnalysisStatus(id=analysis_id, created_at=self.status(folder).created_at, status="failed", progress=0, error=message).model_dump(exclude_none=True))
 
 

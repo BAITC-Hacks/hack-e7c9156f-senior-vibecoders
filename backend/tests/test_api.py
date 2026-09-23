@@ -207,9 +207,9 @@ class ApiTest(TestCase):
             [(d["name"], d["side"]) for d in self.client.app.state.store.documents(folder)],
             [("old.DOCX", "before"), ("other.xlsx", "before"), ("new.pdf", "after")],
         )
-        self.assertTrue((folder / "before-1.docx").exists())
-        self.assertTrue((folder / "before-2.xlsx").exists())
-        self.assertTrue((folder / "after-1.pdf").exists())
+        self.assertTrue((folder / "before-1" / "old.DOCX").exists())
+        self.assertTrue((folder / "before-2" / "other.xlsx").exists())
+        self.assertTrue((folder / "after-1" / "new.pdf").exists())
 
         for files, code in (
             ([('before', ('empty.docx', b'')), ('after', ('ok.pdf', b'%PDF'))], 400),
