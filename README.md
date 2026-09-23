@@ -35,80 +35,46 @@ flowchart LR
 | Сервер | Python, FastAPI, Pydantic, Uvicorn, `python-multipart`, `python-docx` |
 | Анализ | Python, Pydantic, `python-docx`, PyMuPDF, `openpyxl`, RapidFuzz, NumPy, PyYAML |
 | AI API | OpenAI SDK; генерация через OpenAI или NVIDIA API, эмбеддинги через OpenAI |
+| Запуск | Docker Compose, Python 3.11 и Node.js 22 внутри контейнеров |
 
 В шаблоне [`ai/.env.example`](ai/.env.example) указаны модели по умолчанию: `gpt-5.4-mini`, `gpt-5.4` и `text-embedding-3-small`. Доступ к ним зависит от ваших ключей и аккаунта. При использовании NVIDIA для генерации ключ OpenAI всё равно нужен для эмбеддингов. Анализ отправляет содержимое документов внешнему AI-провайдеру.
 
 ## Установка и запуск
 
-Нужны **Python 3.11+**, **Node.js 20 начиная с 20.19 либо 22.12+** и npm (требование установленного Vite). Команды ниже приведены для Bash из корня клонированного репозитория. Для PowerShell см. инструкции в [`backend/README.md`](backend/README.md) и [`ai/README.md`](ai/README.md).
-
-### 1. Настройка AI
-
-Из корня репозитория создайте `ai/.env`:
+**Для демо и интеграционной проверки:** из корня актуальной копии `main` одна команда поднимает frontend и backend без установки Python, Node.js, `venv` или npm-зависимостей на машине:
 
 ```bash
-cp ai/.env.example ai/.env
+docker compose up --build
 ```
 
-Укажите в нём ключи и доступные модели. Для OpenAI нужен `OPENAI_API_KEY`. При `LLM_PROVIDER=nvidia` дополнительно нужны `NVIDIA_API_KEY` и `NVIDIA_MODEL`; `OPENAI_API_KEY` также нужен для эмбеддингов. Секреты храните только в локальных `.env`.
+Нужны только Docker и Docker Compose. Интерфейс: <http://localhost:5173>, API: <http://localhost:8000/docs>. Команда собирает **текущий checkout**; перед запуском обновите `main`, если нужна последняя версия из Git. По умолчанию backend использует подготовленный ответ: загрузка файлов проверяет сквозной путь, но не запускает AI-анализ их содержимого. Остановить сервисы можно `Ctrl+C`; данные заданий хранятся в томе Docker. Порты 8000 и 5173 должны быть свободны.
 
-### 2. Backend
+Если один из портов занят, можно задать другие порты хоста, например:
 
 ```bash
-cd backend
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
+BACKEND_PORT=18000 FRONTEND_PORT=15173 docker compose up --build
 ```
 
-`requirements.txt` устанавливает соседний пакет `ai/`. В `backend/.env` укажите:
+В этом случае интерфейс откроется на <http://localhost:15173>, API — на <http://localhost:18000/docs>.
 
-```dotenv
-AI_MOCK=false
-```
-
-Запустите сервер:
+Для анализа загруженных документов моделью создайте `ai/.env` по [`ai/.env.example`](ai/.env.example), заполните ключи и доступные модели и запустите:
 
 ```bash
-python -m uvicorn app.main:app --reload --port 8000
+AI_MOCK=false docker compose up --build
 ```
 
-API будет доступен на <http://localhost:8000/docs>, проверка сервера — <http://localhost:8000/health>.
-
-### 3. Frontend во втором терминале
-
-```bash
-cd frontend
-npm ci
-cp .env.example .env
-```
-
-Для подключения к запущенному backend укажите в `frontend/.env`:
-
-```dotenv
-VITE_USE_MOCKS=false
-VITE_API_URL=http://localhost:8000
-```
-
-Затем запустите:
-
-```bash
-npm run dev
-```
-
-Откройте <http://localhost:5173>.
+Для OpenAI нужен `OPENAI_API_KEY`. При `LLM_PROVIDER=nvidia` дополнительно нужны `NVIDIA_API_KEY` и `NVIDIA_MODEL`; ключ OpenAI также нужен для эмбеддингов. Секреты храните только в локальном `ai/.env`. Вариант запуска без Docker описан в README [`backend/`](backend/README.md) и [`frontend/`](frontend/README.md).
 
 ## Как проверить решение
 
-После запуска по шагам 1–3 проверьте ответ `{"status":"ok"}` на <http://localhost:8000/health>. В интерфейсе загрузите пару обезличенных документов из [`samples/before/`](samples/before/) и [`samples/after/`](samples/after/) и запустите анализ. Дождитесь статуса `done`, проверьте сравнение текста, подразделения, функции, риски, ссылки «Источник» и выгрузите DOCX-отчёт. Загружать нужно по одному файлу на сторону: текущий веб-интерфейс ограничен одной парой, хотя backend принимает несколько файлов.
+После запуска проверьте ответ `{"status":"ok"}` на <http://localhost:8000/health>. В интерфейсе запустите встроенный комплект, дождитесь статуса `done`, откройте сравнение, заключение и источники, затем выгрузите DOCX-отчёт. Для проверки **реального анализа** запустите стек с `AI_MOCK=false` и загрузите пару обезличенных документов из [`samples/before/`](samples/before/) и [`samples/after/`](samples/after/). Текущий веб-интерфейс ограничен одной парой, хотя backend принимает несколько файлов.
 
 Историю и проверку вывода сотрудником можно проверить через <http://localhost:8000/docs>: `GET /api/analyses`, затем `PATCH /api/analyses/{id}/findings/{finding_id}` с телом `{"status":"accepted"}`. Автоматические проверки модулей описаны в README соответствующих папок.
 
 ## Данные и интеграции
 
 - В репозитории есть обезличенные DOCX редакций 8 и 9 в [`samples/`](samples/), которые можно использовать для проверки анализа.
-- Backend сохраняет задания, исходные файлы, статусы и результаты в локальном `backend/storage/`. Реальный AI-режим обращается к OpenAI API или NVIDIA API для генерации и к OpenAI API для эмбеддингов; ответы модели кэшируются локально в `ai/.cache/` по умолчанию. Другие внешние наборы данных или интеграции в текущем коде не подключены.
+- При запуске через Compose backend сохраняет задания, исходные файлы, статусы и результаты в именованном томе Docker; при ручном запуске — в `backend/storage/`. AI-анализ обращается к OpenAI API или NVIDIA API для генерации и к OpenAI API для эмбеддингов. Другие внешние наборы данных или интеграции в текущем коде не подключены.
 
 ## Ограничения
 
