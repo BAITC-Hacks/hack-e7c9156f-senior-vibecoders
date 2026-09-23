@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from .context import Ctx
 from .llm import call_llm, load_prompt
-from .schemas import Finding, Unit, UnitChange
+from .schemas import AnalysisResult, Finding, Unit, UnitChange
 
 _SEV = {"high": 0, "medium": 1, "low": 2}
 
 
 def usable(f: Finding) -> bool:
-    """В заключение идут только выводы с проверенным источником и не опровергнутые критиком."""
-    return any(e.verified for e in f.evidence) and not (f.critic and f.critic.verdict == "refuted")
+    """В заключение идут выводы с проверенным источником. Решение сотрудника важнее критика:
+    отклонённый человеком — исключается, принятый — включается, даже если критик его опроверг."""
+    if not any(e.verified for e in f.evidence):
+        return False
+    if f.review:
+        return f.review.status == "accepted"
+    return not (f.critic and f.critic.verdict == "refuted")
 
 
 def write_conclusion(ctx: Ctx, units: list[Unit], changes: list[UnitChange], findings: list[Finding]) -> str:
@@ -26,8 +31,18 @@ def write_conclusion(ctx: Ctx, units: list[Unit], changes: list[UnitChange], fin
     fs = []
     for f in sorted((f for f in findings if usable(f)), key=lambda f: _SEV[f.severity]):
         refs = "; ".join(f"{'до' if e.side == 'before' else 'после'}, п. {e.clause_id}" for e in f.evidence if e.verified)
-        critic = f" | критик: {f.critic.verdict} — {f.critic.argument}" if f.critic else ""
+        if f.review and f.review.status == "accepted":  # решение человека заменяет вердикт критика
+            critic = " | ПОДТВЕРЖДЕНО СОТРУДНИКОМ" + (f": {f.review.comment}" if f.review.comment else "")
+        else:
+            critic = f" | критик: {f.critic.verdict} — {f.critic.argument}" if f.critic else ""
         fs.append(f"- [{f.type}, {f.severity}] {f.title}. {f.description} "
                   f"Рекомендация: {f.recommendation or '—'} | источники: {refs}{critic}")
     user = f"ДОКУМЕНТЫ:\n{docs}\n\nИЗМЕНЕНИЯ ЕДИНИЦ:\n{ch or '(нет)'}\n\nВЫВОДЫ:\n" + ("\n".join(fs) or "(нет)")
     return call_llm(load_prompt("report"), user, strong=True).strip()
+
+
+def rebuild_conclusion(result: AnalysisResult) -> str:
+    """Пересборка заключения после проверки выводов человеком (для PATCH …/findings/{id} бэкенда).
+    Учитывает и rejected_findings: вывод, опровергнутый критиком, но принятый сотрудником, попадает в заключение."""
+    ctx = Ctx(result.documents)
+    return write_conclusion(ctx, result.units, result.unit_changes, result.findings + result.rejected_findings)
