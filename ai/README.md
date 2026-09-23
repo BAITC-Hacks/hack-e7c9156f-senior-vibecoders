@@ -12,7 +12,8 @@ Python 3.11+, PowerShell, из корня репозитория:
 cd ai
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements.txt   # точные проверенные версии
+python -m pip install -e .                  # сам пакет ai (бэкенд импортирует ai.pipeline)
 Copy-Item .env.example .env
 $env:PYTHONUTF8 = "1"
 ```

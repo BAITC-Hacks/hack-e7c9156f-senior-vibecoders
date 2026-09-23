@@ -1,0 +1,29 @@
+# AI part: runtime dependencies. Tested on Python 3.13 (3.11+ required).
+# ASCII only on purpose: pip on Windows reads this file in the system code page.
+#
+# From the ai/ folder:
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1           (Windows)   |   source .venv/bin/activate   (Linux/macOS)
+#   pip install -r requirements.txt
+#   pip install -e .                        (the "ai" package itself; the backend imports ai.pipeline)
+#   copy .env.example to .env and set OPENAI_API_KEY
+
+# LLM and embeddings (OpenAI; NVIDIA uses the same client)
+openai==3.19.0
+python-dotenv==1.2.3
+
+# result schemas
+pydantic==2.13.5
+
+# document readers: Word, PDF, Excel
+python-docx==1.2.0
+pymupdf==1.28.2
+openpyxl==3.1.5
+
+# text matching, vectors, catalogs
+rapidfuzz==3.14.6
+numpy==2.5.3
+PyYAML==6.0.3
+
+# tests: python -m pytest -q
+pytest==9.1.1
