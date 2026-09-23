@@ -2,6 +2,7 @@ export type Side = 'before' | 'after'
 
 export interface AnalysisStatus {
   id: string
+  created_at?: string
   status: 'queued' | 'running' | 'done' | 'failed'
   step?: string
   progress: number
@@ -63,6 +64,23 @@ export interface Finding {
   evidence: Evidence[]
   rule_id?: string
   critic?: CriticVerdict
+  review?: Review
+}
+
+export interface Review {
+  status: 'accepted' | 'rejected'
+  comment?: string
+  reviewed_at: string
+}
+
+export type ReviewRequest = Pick<Review, 'status' | 'comment'>
+
+export interface AnalysisSummary {
+  id: string
+  status: AnalysisStatus['status']
+  created_at: string
+  documents: { name: string; side: Side }[]
+  counts?: { findings: number; rejected: number; high: number }
 }
 
 export interface Clause {
