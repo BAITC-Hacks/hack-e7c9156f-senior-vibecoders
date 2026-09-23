@@ -36,12 +36,20 @@ export interface UnitChange {
 }
 
 export interface FunctionMapping {
+  id: string
   function: string
+  category_id: string
   before_unit_id?: string
   after_unit_ids: string[]
   status: 'preserved' | 'moved' | 'modified' | 'lost'
   confidence: number
   evidence: Evidence[]
+}
+
+export interface CriticVerdict {
+  verdict: 'upheld' | 'refuted' | 'uncertain'
+  argument: string
+  counter_evidence: Evidence[]
 }
 
 export interface Finding {
@@ -53,6 +61,38 @@ export interface Finding {
   recommendation?: string
   unit_ids: string[]
   evidence: Evidence[]
+  rule_id?: string
+  critic?: CriticVerdict
+}
+
+export interface Clause {
+  clause_id: string
+  section: string
+  text: string
+}
+
+export type ClauseResponse = Pick<Clause, 'clause_id' | 'text'>
+
+export interface DocumentText {
+  doc_id: string
+  name: string
+  side: Side
+  clauses: Clause[]
+}
+
+export interface ClauseAlignment {
+  before_clause_id?: string
+  after_clause_id?: string
+  status: 'unchanged' | 'modified' | 'added' | 'removed' | 'moved'
+  similarity: number
+  diff?: { op: 'equal' | 'insert' | 'delete'; text: string }[]
+}
+
+export interface Flow {
+  source_unit_id: string
+  target_unit_id: string
+  function_ids: string[]
+  value: number
 }
 
 export interface AnalysisResult {
@@ -60,16 +100,16 @@ export interface AnalysisResult {
   unit_changes: UnitChange[]
   function_mappings: FunctionMapping[]
   findings: Finding[]
+  rejected_findings: Finding[]
   conclusion_md: string
+  documents: DocumentText[]
+  alignments: ClauseAlignment[]
+  flows: Flow[]
+  categories: { id: string; name: string }[]
   meta: {
     model: string
     provider: string
     duration_s: number
     documents: { doc_id: string; name: string; side: Side }[]
   }
-}
-
-export interface Clause {
-  clause_id: string
-  text: string
 }

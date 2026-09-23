@@ -10,8 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "diff": "^9.0.0",
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

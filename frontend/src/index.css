@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
-:root{font-family:Arial,Helvetica,sans-serif;color:#1d302c;background:#f5f7f3;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+:root{font-family:Arial,Helvetica,sans-serif;color:#10263d;background:#f3f5f7;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
 *{box-sizing:border-box}
 body{margin:0}
 button,input{font:inherit}
 button{cursor:pointer}
 button:disabled{cursor:not-allowed}
-button:focus-visible,label:focus-within{outline:3px solid #7aa994;outline-offset:3px}
+button:focus-visible,label:focus-within{outline:3px solid #7a91a9;outline-offset:3px}
