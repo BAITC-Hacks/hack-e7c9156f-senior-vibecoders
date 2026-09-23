@@ -1,0 +1,20 @@
+# Весь стек одной командой: docker compose up -d --build
+# Фронт: http://localhost:5173, бэк + ИИ: http://localhost:8000/docs
+# Ключи LLM берутся из ai/.env (если его нет — используйте AI_MOCK=true).
+services:
+  backend:
+    build: { context: ., dockerfile: docker/backend.Dockerfile }
+    ports: ["8000:8000"]
+    env_file:
+      - path: ai/.env
+        required: false
+    environment:
+      AI_MOCK: ${AI_MOCK:-false}
+      FRONTEND_ORIGIN: http://localhost:5173
+      AI_CACHE_DIR: /app/ai/.cache
+    volumes:
+      - ./ai/.cache:/app/ai/.cache
+  frontend:
+    build: { context: ., dockerfile: docker/frontend.Dockerfile }
+    ports: ["5173:80"]
+    depends_on: [backend]
