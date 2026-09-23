@@ -11,7 +11,7 @@ from rapidfuzz import fuzz
 from .context import Ctx, LLMEvidence
 from .llm import call_llm, load_prompt
 from .parsing import render_for_prompt
-from .schemas import DocumentText, Side, Unit, UnitChange
+from .schemas import DocumentText, Finding, Side, Unit, UnitChange
 
 
 # --- схемы ответов LLM (без значений по умолчанию — для strict structured output) ---
@@ -236,3 +236,48 @@ def match_units(ctx: Ctx, units: list[Unit]) -> list[UnitChange]:
                                   rationale="Единица отсутствовала в документах до реорганизации",
                                   evidence=by_id[i].evidence[:1]))
     return changes
+
+
+_STATUS_TITLE = {
+    "created": "Создана единица", "abolished": "Упразднена единица", "renamed": "Переименована единица",
+    "transformed": "Преобразована единица", "merged": "Объединены единицы", "split": "Разделена единица",
+}
+
+
+def structure_findings(changes: list[UnitChange], units: list[Unit]) -> list[Finding]:
+    """Выводы об изменениях структуры — без LLM, из результатов сопоставления."""
+    by_id = {u.id: u for u in units}
+
+    def label(ids: list[str]) -> str:
+        return ", ".join(by_id[i].abbr or by_id[i].name for i in ids if i in by_id)
+
+    out: list[Finding] = []
+    for n, ch in enumerate(changes, 1):
+        if ch.status == "preserved":
+            b, a = by_id[ch.before_unit_ids[0]], by_id[ch.after_unit_ids[0]]
+            removed = [p for p in b.positions if _norm(p) not in {_norm(x) for x in a.positions}]
+            added = [p for p in a.positions if _norm(p) not in {_norm(x) for x in b.positions}]
+            if not removed and not added:
+                continue
+            out.append(Finding(
+                id=f"struct-{n}", type="structure_change", severity="medium" if removed else "low",
+                title=f"Изменён состав должностей {a.abbr or a.name}",
+                description=(f"Подразделение сохранено, но состав должностей изменён."
+                             + (f" Исключены: {'; '.join(removed)}." if removed else "")
+                             + (f" Добавлены: {'; '.join(added)}." if added else "")),
+                recommendation="Проверить, за кем закреплены функции исключённых должностей." if removed else None,
+                unit_ids=ch.before_unit_ids + ch.after_unit_ids, evidence=b.evidence[:2] + a.evidence[:2],
+            ))
+            continue
+        if ch.status not in _STATUS_TITLE:
+            continue
+        subj = label(ch.before_unit_ids) or label(ch.after_unit_ids)
+        arrow = (f"{label(ch.before_unit_ids)} → {label(ch.after_unit_ids)}"
+                 if ch.before_unit_ids and ch.after_unit_ids else subj)
+        out.append(Finding(
+            id=f"struct-{n}", type="structure_change",
+            severity="medium" if ch.status in ("abolished", "split", "merged", "transformed") else "low",
+            title=f"{_STATUS_TITLE[ch.status]}: {arrow}", description=ch.rationale,
+            unit_ids=ch.before_unit_ids + ch.after_unit_ids, evidence=ch.evidence,
+        ))
+    return out
