@@ -1,0 +1,17 @@
+{
+  "unit_changes": [
+    {"before_abbr": "СКЛ", "after_abbr": "ДЛ", "status": "merged"},
+    {"before_abbr": "СД", "after_abbr": "ДЛ", "status": "merged"},
+    {"after_abbr": "ОМ", "status": "created"},
+    {"before_abbr": "ОП", "after_abbr": "ОП", "status": "preserved"},
+    {"before_abbr": "ОЗ", "after_abbr": "ОЗ", "status": "preserved"},
+    {"before_abbr": "СПК", "after_abbr": "СПК", "status": "preserved"}
+  ],
+  "alignments": [],
+  "findings": [
+    {"type": "function_loss", "unit_abbrs": ["СКЛ"], "evidence_clause_ids": ["4.2.4"]},
+    {"type": "duplication", "unit_abbrs": ["ДЛ", "СПК"], "evidence_clause_ids": ["4.2.6", "4.4.3"]},
+    {"type": "conflict_of_interest", "unit_abbrs": ["ОЗ"], "evidence_clause_ids": ["4.3.1", "4.3.3"]},
+    {"type": "structure_change", "unit_abbrs": ["СКЛ", "СД", "ДЛ"], "evidence_clause_ids": ["3.1"]}
+  ]
+}
