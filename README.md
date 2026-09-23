@@ -41,6 +41,9 @@ flowchart LR
 
 ## Установка и запуск
 
+**Запуск Приложения**
+https://kazakhtelecom-scandoc.onrender.com/
+
 **Для демо и интеграционной проверки:** из корня актуальной копии `main` одна команда поднимает frontend и backend без установки Python, Node.js, `venv` или npm-зависимостей на машине:
 
 ```bash

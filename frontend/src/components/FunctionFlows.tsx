@@ -69,6 +69,11 @@ export function FunctionFlows({ result, onOpenSource }: { result: AnalysisResult
       {sources.map((node, index) => <g key={node.id}><rect x="248" y={node.y + shift(sources)} width="12" height={node.height} rx="3" fill={colors[index % colors.length]} /><text x="238" y={node.y + shift(sources) + node.height / 2 - 3} textAnchor="end" className="flow-node-name">{node.name}</text><text x="238" y={node.y + shift(sources) + node.height / 2 + 13} textAnchor="end" className="flow-node-count">{node.value} функций</text></g>)}
       {targets.map((node) => <g key={node.id}><rect x="700" y={node.y + shift(targets)} width="12" height={node.height} rx="3" fill={node.id === 'lost' ? '#c47769' : '#4c91be'} /><text x="724" y={node.y + shift(targets) + node.height / 2 - 3} className="flow-node-name">{node.name}</text><text x="724" y={node.y + shift(targets) + node.height / 2 + 13} className="flow-node-count">{node.value} функций</text></g>)}
     </svg></div>
+    <div className="flow-mobile-list" aria-label="Перемещение функций между подразделениями">
+      {flows.map((flow, index) => <button key={`${flow.source_unit_id}-${flow.target_unit_id}-${index}`} type="button" className={selected === index ? 'selected' : ''} onClick={() => setSelected(index)}>
+        <span>{unitName(flow.source_unit_id)} → {unitName(flow.target_unit_id)}</span><strong>{flow.value} функций</strong>
+      </button>)}
+    </div>
     {selected !== null && flows[selected] && <FlowDetails flow={flows[selected]} result={result} onOpenSource={onOpenSource} />}
   </>
 }

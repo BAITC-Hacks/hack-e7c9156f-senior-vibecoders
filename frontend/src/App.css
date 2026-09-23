@@ -87,6 +87,7 @@ button:focus-visible,.file-button:focus-within{outline:3px solid #83bef0;outline
 .flow-intro{color:#60758a;font-size:14px}
 .flow-chart-wrap{overflow-x:auto;border:1px solid #dbe5ef;border-radius:10px;background:#f7fafc}
 .flow-chart{display:block;min-width:760px;width:100%;height:auto}
+.flow-mobile-list{display:none}
 .flow-column-title{fill:#557b9e;font-size:12px;font-weight:800;letter-spacing:2px}
 .flow-node-name{fill:#203f5d;font-size:13px;font-weight:700}
 .flow-node-count{fill:#73889b;font-size:11px}
@@ -141,3 +142,55 @@ button:focus-visible,.file-button:focus-within{outline:3px solid #83bef0;outline
 .finding-review .alert{margin:12px 0 0}
 @media(max-width:620px){.unit-grid{grid-template-columns:1fr}}
 @media(max-width:620px){.history-section button{align-items:flex-start;flex-direction:column;gap:5px}.history-section button span{flex:auto}}
+
+/* Keep each panel inside the viewport, including long names and source text. */
+#root,.app-shell,.main-content,.result-panel,.tab-content,.comparison,.table-wrap,.flow-chart-wrap{min-width:0;max-width:100%}
+.topbar{min-height:76px;height:auto;gap:14px;padding-block:14px}
+.topbar>*{min-width:0}
+.brand{min-width:0;overflow-wrap:anywhere}
+.brand-mark,.mode-pill{flex:none}
+.main-content,.result-heading>div,.page-heading>div,.progress-summary>div,.document-picker,.metrics>div,.finding-card,.unit-grid article{min-width:0}
+.journey{flex-wrap:wrap}
+.journey button{border:0;background:none;padding:5px 0;color:inherit;font:inherit;letter-spacing:inherit;white-space:nowrap}
+.journey button.current{color:#1b3e64}
+.journey button.complete{color:#3a80cb}
+.journey button:disabled{cursor:default;opacity:.55}
+.journey button:not(:disabled):hover{text-decoration:underline}
+.file-list li span,.history-section button strong,.unit-grid article,.finding-card,.source-document strong,.source-body,.conclusion-text,td{overflow-wrap:anywhere}
+.progress-summary{gap:12px}
+.progress-steps{flex-wrap:wrap;gap:8px 14px}
+.progress-back{margin-top:24px}
+.result-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 24px;border-top:1px solid #e3e7eb;color:#62778a;font-size:13px}
+.result-navigation .outline-button:disabled{opacity:.45}
+.table-wrap{overflow-x:auto}
+.source-panel{min-width:0;max-height:100dvh;overflow-y:auto;overflow-x:hidden}
+.source-body{min-height:0}
+.comparison-toolbar{flex-wrap:wrap}
+@media(max-width:800px){.result-actions{justify-content:flex-start}}
+@media(max-width:620px){
+  .topbar{min-height:65px}
+  .brand{font-size:14px}
+  .mode-pill{white-space:nowrap}
+  .page-heading h1,.progress-layout h1{font-size:clamp(30px,9vw,38px)}
+  .result-heading h1{font-size:clamp(30px,9vw,38px)}
+  .result-actions{width:100%}
+  .result-actions .outline-button{white-space:normal;flex:1}
+  .metrics div{padding:14px}
+  .metrics span{overflow-wrap:anywhere}
+  .tabs{padding:0 10px}
+  .tab-content{padding:24px 16px}
+  .comparison{padding:20px 14px}
+  .comparison-intro{flex-wrap:wrap}
+  .change-total{align-items:flex-start}
+  .finding-card{padding:16px}
+  .finding-meta{flex-wrap:wrap}
+  .result-navigation{padding:15px 12px}
+  .result-navigation .outline-button{padding:9px 10px}
+  .source-panel{padding:20px}
+  .flow-chart-wrap{display:none}
+  .flow-mobile-list{display:grid;gap:8px}
+  .flow-mobile-list button{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:14px;border:1px solid #dbe5ef;border-radius:8px;background:#f7fafc;color:#244963;text-align:left;font-size:13px}
+  .flow-mobile-list button.selected{border-color:#006bb8;background:#eaf3fc}
+  .flow-mobile-list span{min-width:0;overflow-wrap:anywhere}
+  .flow-mobile-list strong{flex:none;color:#006bb8;font-size:12px}
+}
