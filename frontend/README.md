@@ -1,75 +1,56 @@
-# React + TypeScript + Vite
+# Frontend: анализ организационной структуры
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Что это
 
-Currently, two official plugins are available:
+React-интерфейс для сравнения документов до и после реорганизации. Загружает файлы через backend, показывает ход анализа и выводы с переходом к исходному пункту документа.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Быстрый старт
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Откройте http://localhost:5173. Без настройки переменных запускается локальный демо-режим. Для подключения к backend укажите `VITE_USE_MOCKS=false` в `.env` и запустите backend на порту 8000.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Переменные окружения
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Имя | Зачем | Пример |
+|---|---|---|
+| `VITE_USE_MOCKS` | `true` включает локальный пример, `false` вызывает backend. Пустое значение включает пример. | `true` |
+| `VITE_API_URL` | Базовый URL backend. Пустое значение означает `http://localhost:8000`. | `http://localhost:8000` |
 
+На фронтенде нет секретных ключей: все `VITE_` значения доступны браузеру.
+
+## API / интерфейс
+
+Все запросы проходят через `src/api/client.ts`; типы ответов находятся в `src/api/types.ts` и повторяют `../shared/api.md`.
+
+| Запрос | Назначение |
+|---|---|
+| `POST /api/analyses` | Отправка `FormData`: повторяющиеся поля `before` и `after` с файлами. Ответ: `{ "id": "a1b2" }`. |
+| `POST /api/analyses/demo` | Запуск серверного демо-комплекта. Ответ: `{ "id": "a1b2" }`. |
+| `GET /api/analyses/a1b2` | Статус, например `{ "id": "a1b2", "status": "running", "step": "units", "progress": 0.4 }`. |
+| `GET /api/analyses/a1b2/result` | Итоговый `AnalysisResult` после статуса `done`. |
+| `GET /api/analyses/a1b2/documents/r9/clauses/3.4` | Текст пункта: `{ "clause_id": "3.4", "text": "..." }`. |
+
+Экраны: **Документы** → **Анализ** → **Результат**. На результате доступны заключение, подразделения, функции и риски; кнопки «Источник» открывают пункт документа и подсвечивают цитату.
+
+## Статус
+
+- Работает загрузка файлов, демо-кнопка, опрос прогресса, вывод результата и панель источника.
+- Локальный пример в `src/api/mocks.ts` иллюстрирует структуру ответа. Его цитаты и текст пунктов условные, помечены как непроверенные. Загрузка любых файлов в режиме моков показывает один и тот же пример.
+- В режиме backend интерфейс использует реальный API. Экспорт DOCX пока не выведен в интерфейс.
+- Известное ограничение: форматирование `conclusion_md` поддерживает обычный текст и жирное выделение, без полного Markdown.
+
+## Как проверить
+
+```bash
+cd frontend
+npm run build
+npm run dev
 ```
+
+Откройте страницу, нажмите «Запустить демо-комплект», дождитесь результата, откройте вкладку «Подразделения» и нажмите ссылку на пункт 3.4. Проверьте вкладки «Функции» и «Риски». Для проверки реального API задайте `VITE_USE_MOCKS=false` и повторите сценарий с запущенным backend.
