@@ -274,10 +274,16 @@ def structure_findings(changes: list[UnitChange], units: list[Unit]) -> list[Fin
         subj = label(ch.before_unit_ids) or label(ch.after_unit_ids)
         arrow = (f"{label(ch.before_unit_ids)} → {label(ch.after_unit_ids)}"
                  if ch.before_unit_ids and ch.after_unit_ids else subj)
+        # к обоснованию изменения добавляем, где каждая единица названа в структуре (напр. п. 3.4.а)
+        ev = list(ch.evidence)
+        for uid in ch.before_unit_ids + ch.after_unit_ids:
+            for e in by_id[uid].evidence[:1] if uid in by_id else []:
+                if (e.doc_id, e.clause_id) not in {(x.doc_id, x.clause_id) for x in ev}:
+                    ev.append(e)
         out.append(Finding(
             id=f"struct-{n}", type="structure_change",
             severity="medium" if ch.status in ("abolished", "split", "merged", "transformed") else "low",
             title=f"{_STATUS_TITLE[ch.status]}: {arrow}", description=ch.rationale,
-            unit_ids=ch.before_unit_ids + ch.after_unit_ids, evidence=ch.evidence,
+            unit_ids=ch.before_unit_ids + ch.after_unit_ids, evidence=ev,
         ))
     return out
