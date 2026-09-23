@@ -15,9 +15,24 @@
 | GET  | `/api/analyses/{id}` | `AnalysisStatus` |
 | GET  | `/api/analyses/{id}/result` | `AnalysisResult` (только при `status = "done"`, иначе 409) |
 | GET  | `/api/analyses/{id}/documents/{doc_id}/clauses/{clause_id}` | `{ "clause_id": "3.4", "text": "..." }` |
-| GET  | `/api/analyses/{id}/report.docx` | файл отчёта (опционально) |
+| GET  | `/api/analyses/{id}/report.docx` | служебная записка .docx (см. «Экспорт») |
+| GET  | `/api/analyses` | `AnalysisSummary[]` — история запусков, новые сверху |
+| PATCH | `/api/analyses/{id}/findings/{finding_id}` | тело `ReviewRequest` → обновлённый `AnalysisResult` (с пересобранным `conclusion_md`) |
+| POST | `/api/analyses/{id}/ask` | тело `{ "question": "..." }` → `AskAnswer` — **запланировано**, ждёт функцию из `ai/` |
 
 Ошибки: `{ "error": "описание" }` + корректный HTTP-код.
+
+### Задачи бэкенда (по приоритету — каждая добавляет баллы)
+
+1. **Проверка человеком** — закрывает требование ТЗ «выводы проверяет ответственный сотрудник».
+   - `PATCH …/findings/{finding_id}`: ищет вывод в `findings` **и** в `rejected_findings`, записывает `review` (см. схему), сохраняет `result.json`.
+   - Затем пересобирает заключение: `from ai.report import rebuild_conclusion; result.conclusion_md = rebuild_conclusion(result)` (вызов LLM, ~5–15 с; делать синхронно или фоном со статусом).
+   - Правило: `review.status = "rejected"` → вывод исключается из заключения; `"accepted"` → включается, даже если критик его опроверг. 404 — нет анализа/вывода, 409 — анализ не в `done`.
+2. **Экспорт служебной записки `.docx`** — `report.docx`: заголовок, дата, список документов, `conclusion_md` (markdown → абзацы/списки), таблица выводов (тип, критичность, заголовок, источники «документ, п. X — «цитата»»), отметки проверки человеком, дисклеймер «Выводы носят рекомендательный характер…». Имя файла: `zaklyuchenie_<id>.docx`.
+3. **История анализов** — `GET /api/analyses`: читает `storage/*/status.json` + `documents.json`, сортировка по `created_at`.
+4. **Проверка загрузки** — только `.docx/.pdf/.xlsx`, ≤ 20 МБ на файл, ≥ 1 файл на каждую сторону; ошибки `400/413/415` с понятным русским текстом в `error` (напр. «Файл «x.doc» не поддерживается: загрузите .docx, .pdf или .xlsx»).
+5. **Воспроизводимость (25 баллов за README)** — одна команда запуска всего проекта (`docker-compose up` или скрипт `run.ps1`/`Makefile`), корневой `README.md` (что это, архитектура со ссылкой на `ARCHITECTURE.md`, запуск за 5 минут, демо-сценарий), по возможности деплой с живой ссылкой для жюри.
+6. **Чат с документами** (`POST …/ask`) — после того как в `ai/` появится `ai.chat.ask(result, question) -> AskAnswer`.
 
 ## Схемы
 
@@ -26,6 +41,7 @@ type Side = "before" | "after";
 
 interface AnalysisStatus {
   id: string;
+  created_at?: string;  // ISO 8601 — нужен для истории
   status: "queued" | "running" | "done" | "failed";
   step?: string;        // "parsing" | "alignment" | "units" | "functions" | "conflicts" | "evidence" | "critic" | "report"
   progress: number;     // 0..1
@@ -74,6 +90,28 @@ interface Finding {
   unit_ids: string[]; evidence: Evidence[];
   rule_id?: string;       // для conflict_of_interest: id правила несовместимости функций
   critic?: CriticVerdict;
+  review?: Review;        // решение сотрудника; ставит только бэкенд через PATCH
+}
+
+interface Review {
+  status: "accepted" | "rejected";
+  comment?: string;
+  reviewed_at: string;    // ISO 8601
+}
+
+interface ReviewRequest { status: "accepted" | "rejected"; comment?: string; }
+
+interface AnalysisSummary {             // строка истории
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  created_at: string;                   // ISO 8601
+  documents: { name: string; side: Side }[];
+  counts?: { findings: number; rejected: number; high: number };   // только для done
+}
+
+interface AskAnswer {                   // запланировано
+  answer_md: string;
+  evidence: Evidence[];                 // каждое утверждение ответа — со ссылкой; verified как везде
 }
 
 interface Clause { clause_id: string; section: string; text: string; }   // clause_id: "3.4", "2.4.7", "3.4.а"
@@ -123,7 +161,12 @@ result: AnalysisResult = run_analysis(
     after_files: list[Path],
     on_progress: Callable[[str, float], None],   # (step, progress 0..1)
 )
+
+from ai.report import rebuild_conclusion
+result.conclusion_md = rebuild_conclusion(result)   # после изменения review у выводов
 ```
+
+Бэкенду: результат `run_analysis` — объект Pydantic из `ai.schemas`; сохраняйте его через `result.model_dump(mode="json")`, не прогоняйте через устаревшие схемы — иначе пропадут новые поля.
 
 ## Общие соглашения
 
@@ -135,3 +178,4 @@ result: AnalysisResult = run_analysis(
 
 - 2026-09-23 — первая версия контракта.
 - 2026-09-23 — добавлено: redline (`documents`, `alignments`), Sankey (`flows`), каталог функций (`categories`, `FunctionMapping.id/category_id`), агент-критик (`Finding.critic`, `rejected_findings`), SoD-правила (`Finding.rule_id`). Pydantic-эталон: `ai/ai/schemas.py`.
+- 2026-09-23 — задачи бэкенда: проверка человеком (`Finding.review`, `PATCH …/findings/{id}`, `ai.report.rebuild_conclusion`), история (`GET /api/analyses`, `AnalysisSummary`, `AnalysisStatus.created_at`), экспорт `.docx`, валидация загрузки, запланирован `POST …/ask`.

@@ -64,6 +64,9 @@ payload = result.model_dump(mode="json")
 # rejected_findings, documents, alignments, flows, categories, conclusion_md, meta
 ```
 
+После того как сотрудник принял или отклонил вывод (`Finding.review`), бэкенд пересобирает заключение:
+`from ai.report import rebuild_conclusion; result.conclusion_md = rebuild_conclusion(result)` — решение человека важнее вердикта критика.
+
 Пример полного ответа — [mocks/result.json](../mocks/result.json). Вызов синхронный; бэкенду следует выполнять его в фоновой задаче/потоке. Пути примера считаются от папки `ai/`.
 
 `on_progress(step: str, progress: float)` получает начала шагов из `pipeline.STEPS`:

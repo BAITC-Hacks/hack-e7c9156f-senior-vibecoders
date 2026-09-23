@@ -66,6 +66,14 @@ class CriticVerdict(BaseModel):
     counter_evidence: list[Evidence] = Field(default_factory=list)
 
 
+class Review(BaseModel):
+    """Решение сотрудника по выводу — ставит бэкенд, агент не заполняет."""
+
+    status: Literal["accepted", "rejected"]
+    comment: str | None = None
+    reviewed_at: str  # ISO 8601
+
+
 class Finding(BaseModel):
     id: str
     type: Literal["function_loss", "duplication", "conflict_of_interest", "structure_change"]
@@ -77,6 +85,7 @@ class Finding(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     rule_id: str | None = None
     critic: CriticVerdict | None = None
+    review: Review | None = None
 
 
 class DiffOp(BaseModel):
