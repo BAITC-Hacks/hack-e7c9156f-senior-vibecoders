@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -15,13 +16,15 @@ import yaml
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 
-from .context import Ctx, LLMEvidence
+from .context import Ctx, LLMEvidence, normalize_clause_id
 from .llm import call_llm, embed, load_prompt
 from .parsing import render_for_prompt
-from .schemas import Category, DocumentText, Evidence, Finding, Flow, FunctionMapping, Side, Unit, UnitChange
+from .schemas import (Category, ClauseAlignment, DocumentText, Evidence, Finding, Flow, FunctionMapping, Side, Unit,
+                      UnitChange)
 from .units import document_subject
 
 TOP_K = 8
+EXTRACT_WORKERS = 4
 DUP_SIM = 0.82
 MAX_DUP_PAIRS = 25
 MAX_EVIDENCE = 6
@@ -100,23 +103,53 @@ class FunctionsResult:
 
 # --- извлечение ---
 
+def _extract_for_unit(doc: DocumentText, side_units: list[Unit], target: Unit, subject: Unit | None) -> LLMFunctions:
+    """Узкая задача «выпиши функции ТОЛЬКО этой единицы» — модель не бросает её на полпути,
+    в отличие от «выпиши функции всех единиц» по документу на десятки тысяч токенов."""
+    cat_text = "\n".join(f"- {c['id']}: {c['name']} — {c['hint']}" for c in catalog())
+    unit_text = "\n".join(f"- id={u.id} | {u.name}" + (f" ({u.abbr})" if u.abbr else "") for u in side_units)
+    subject_text = (f"ЭТОТ ДОКУМЕНТ ПОСВЯЩЁН ЕДИНИЦЕ: id={subject.id} | {subject.name}. Функции, где исполнитель "
+                    f"не назван явно («Отдел осуществляет…», «обеспечивает…»), относятся к ней.\n\n") if subject else ""
+    task = (f"ЗАДАЧА: выпиши ВСЕ функции, закреплённые за единицей id={target.id} | {target.name}"
+            + (f" ({target.abbr})" if target.abbr else "") + ", включая пункты, где она названа вместе с другими "
+            "единицами (тогда перечисли в unit_ids и их). Функции других единиц не выписывай.\n\n")
+    user = (f"СТРУКТУРНЫЕ ЕДИНИЦЫ:\n{unit_text}\n\n{subject_text}{task}КАТАЛОГ КАТЕГОРИЙ:\n{cat_text}\n\n"
+            f"{render_for_prompt(doc)}")
+    return call_llm(load_prompt("functions_extract"), user, LLMFunctions)
+
+
+def _merge_same(funcs: list[LLMFunction]) -> list[LLMFunction]:
+    """Один и тот же пункт, извлечённый в запросах разных единиц (п. 5.3 «ДИТААД и ДОА»), → одна функция."""
+    out: dict[tuple[str, ...], LLMFunction] = {}
+    for f in funcs:
+        key = tuple(sorted(normalize_clause_id(e.clause_id) for e in f.evidence)) or (f.text,)
+        if key in out:
+            out[key].unit_ids = sorted(set(out[key].unit_ids) | set(f.unit_ids))
+        else:
+            out[key] = f.model_copy(deep=True)
+    return list(out.values())
+
+
 def extract_functions(ctx: Ctx, doc: DocumentText, units: list[Unit], start: int) -> list[Func]:
     side_units = [u for u in units if u.side == doc.side]
     if not side_units:
         return []
-    cat_text = "\n".join(f"- {c['id']}: {c['name']} — {c['hint']}" for c in catalog())
-    unit_text = "\n".join(f"- id={u.id} | {u.name}" + (f" ({u.abbr})" if u.abbr else "") for u in side_units)
     subject = document_subject(doc, side_units)  # «ПОЛОЖЕНИЕ об Отделе разработки»
-    subject_text = (f"ЭТОТ ДОКУМЕНТ ПОСВЯЩЁН ЕДИНИЦЕ: id={subject.id} | {subject.name}. Функции, где исполнитель "
-                    f"не назван явно («Отдел осуществляет…», «обеспечивает…»), относятся к ней.\n\n") if subject else ""
-    user = (f"СТРУКТУРНЫЕ ЕДИНИЦЫ:\n{unit_text}\n\n{subject_text}КАТАЛОГ КАТЕГОРИЙ:\n{cat_text}\n\n"
-            f"{render_for_prompt(doc)}")
-    res = call_llm(load_prompt("functions_extract"), user, LLMFunctions)
+    with ThreadPoolExecutor(EXTRACT_WORKERS) as pool:
+        per_unit = list(pool.map(lambda u: _extract_for_unit(doc, side_units, u, subject), side_units))
+    own: list[LLMFunction] = []
+    for r, u in zip(per_unit, side_units):
+        for f in r.functions:
+            if not f.unit_ids:  # в запросе про единицу X функция без единицы — это функция X
+                f = f.model_copy(update={"unit_ids": [u.id]})
+            if u.id in f.unit_ids:  # чужие функции из этого запроса не берём — их извлекает свой запрос
+                own.append(f)
+    raw = _merge_same(own)
 
     valid_cats = {c["id"] for c in catalog()}
     by_uid = {u.id: u for u in side_units}
     out: list[Func] = []
-    for f in res.functions:
+    for f in raw:
         ev = ctx.evidence(f.evidence)
         # привязка к единице должна подтверждаться текстом пункта, заголовком родителя или тем, что документ
         # целиком посвящён этой единице — иначе это функция блока в целом, ошибочно приписанная подразделению
@@ -181,9 +214,26 @@ def _emb_text(f: Func) -> str:
     return f"{_cat_name(f.category_id)}: {f.text}"
 
 
-def match_functions(before: list[Func], after: list[Func],
-                    changes: list[UnitChange]) -> tuple[list[FunctionMapping], dict[str, str]]:
-    """Возвращает сопоставления и пояснения LLM к потерянным функциям (mapping.id → текст)."""
+def _clause_related(a: str, b: str) -> bool:
+    return a == b or a.startswith(b + ".") or b.startswith(a + ".")
+
+
+def moved_clauses(alignments: list[ClauseAlignment]) -> dict[str, str]:
+    """before clause_id → after clause_id для пунктов, которые сохранились (в т.ч. под другим номером)."""
+    return {a.before_clause_id: a.after_clause_id for a in alignments
+            if a.before_clause_id and a.after_clause_id and a.status in ("unchanged", "moved", "modified")}
+
+
+def _aligned_after_funcs(f: Func, after: list[Func], moved: dict[str, str]) -> list[Func]:
+    """Функции «после», стоящие в том пункте, куда по выравниванию переехал пункт функции «до»."""
+    targets = {moved[e.clause_id] for e in f.evidence if e.side == "before" and e.clause_id in moved}
+    return [a for a in after if any(_clause_related(e.clause_id, t) for e in a.evidence for t in targets)]
+
+
+def match_functions(before: list[Func], after: list[Func], changes: list[UnitChange],
+                    alignments: list[ClauseAlignment] | None = None) -> tuple[list[FunctionMapping], dict[str, str]]:
+    """Возвращает сопоставления и пояснения LLM к потерянным функциям (mapping.id → текст).
+    Кандидаты: функции из пункта, куда переехал исходный пункт (выравнивание), + top-k по эмбеддингам."""
     if not before:
         return [], {}
     if not after:
@@ -191,13 +241,16 @@ def match_functions(before: list[Func], after: list[Func],
     else:
         eb, ea = embed([_emb_text(f) for f in before]), embed([_emb_text(f) for f in after])
         sims = eb @ ea.T
+    moved = moved_clauses(alignments or [])
 
     cand: dict[str, list[Func]] = {}
     blocks = []
     for i, f in enumerate(before):
+        aligned = _aligned_after_funcs(f, after, moved)
         idx = np.argsort(-sims[i])[:TOP_K] if after else []
-        cand[f.id] = [after[j] for j in idx]
+        cand[f.id] = aligned + [after[j] for j in idx if after[j] not in aligned]
         lines = "\n".join(f"    - {a.id} [{', '.join(a.unit_ids)}] {a.text}  (цитата: «{a.evidence[0].quote}»)"
+                          + ("  ← исходный пункт переехал сюда" if a in aligned else "")
                           for a in cand[f.id])
         blocks.append(f"- {f.id} [{', '.join(f.unit_ids)}] {f.text}  (цитата: «{f.evidence[0].quote}»)\n"
                       f"  КАНДИДАТЫ:\n{lines or '    (нет)'}")
@@ -207,6 +260,9 @@ def match_functions(before: list[Func], after: list[Func],
 
     by_id = {a.id: a for a in after}
     umap = _unit_mapping(changes)
+    identical = {a.before_clause_id: a.after_clause_id for a in alignments or []
+                 if a.before_clause_id and a.after_clause_id and a.status in ("unchanged", "moved")}
+    after_docs = sorted({(e.doc_id, e.doc_name) for a in after for e in a.evidence})
     mappings: list[FunctionMapping] = []
     loss_notes: dict[str, str] = {}
     for f in before:
@@ -215,7 +271,17 @@ def match_functions(before: list[Func], after: list[Func],
         matched = [by_id[i] for i in (d.match_ids if d else []) if i in allowed]
         relation = d.relation if d and matched else "none"
         after_units = sorted({u for a in matched for u in a.unit_ids})
+        # пункт функции дословно сохранился в новой редакции → функция не потеряна (детерминированно, без LLM)
+        kept_clauses = [identical[e.clause_id] for e in f.evidence if e.side == "before" and e.clause_id in identical]
         for u in f.unit_ids:
+            if relation == "none" and kept_clauses and umap.get(u):
+                kept_ev = [e.model_copy(update={"doc_id": doc_id, "doc_name": doc_name, "side": "after",
+                                               "clause_id": kept_clauses[0], "verified": False})
+                           for e in f.evidence[:1] for doc_id, doc_name in after_docs[:1]]
+                mappings.append(FunctionMapping(
+                    id=f"fm{len(mappings) + 1}", function=f.text, category_id=f.category_id, before_unit_id=u,
+                    after_unit_ids=sorted(umap[u]), status="preserved", confidence=0.85, evidence=f.evidence + kept_ev))
+                continue
             if relation == "none":
                 status, conf = "lost", 0.7
             elif set(after_units) <= umap.get(u, set()):
@@ -327,13 +393,16 @@ def duplicate_findings(after: list[Func], units: list[Unit]) -> list[Finding]:
 
 
 def apply_rejected_losses(mappings: list[FunctionMapping], rejected: list[Finding], funcs: list[Func],
-                          changes: list[UnitChange]) -> list[FunctionMapping]:
-    """Критик опроверг потерю → функция не «lost»: ищем, у какой единицы «после» она нашлась по контр-цитате."""
+                          changes: list[UnitChange],
+                          alignments: list[ClauseAlignment] | None = None) -> list[FunctionMapping]:
+    """Критик опроверг потерю → функция не «lost»: ищем, у какой единицы «после» она нашлась —
+    по контр-цитате критика, а если там общая норма без единицы — по тому, куда переехал исходный пункт."""
+    after = [f for f in funcs if f.side == "after"]
     by_clause: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for f in funcs:
-        if f.side == "after":
-            for e in f.evidence:
-                by_clause[(e.doc_id, e.clause_id)].update(f.unit_ids)
+    for f in after:
+        for e in f.evidence:
+            by_clause[(e.doc_id, e.clause_id)].update(f.unit_ids)
+    moved = moved_clauses(alignments or [])
     refuted = {f.id.removeprefix("loss-"): f for f in rejected if f.type == "function_loss" and f.critic}
     umap = _unit_mapping(changes)
     out = []
@@ -344,6 +413,12 @@ def apply_rejected_losses(mappings: list[FunctionMapping], rejected: list[Findin
             continue
         counter = [e for e in f.critic.counter_evidence if e.side == "after"]
         units = sorted({u for e in counter for u in by_clause.get((e.doc_id, e.clause_id), set())})
+        if not units:  # контр-цитата — норма блока в целом; смотрим, куда переехал исходный пункт
+            src = Func(id=m.id, side="before", unit_ids=[], text=m.function, category_id=m.category_id,
+                       evidence=[e for e in m.evidence if e.side == "before"])
+            aligned = _aligned_after_funcs(src, after, moved)
+            units = sorted({u for a in aligned for u in a.unit_ids})
+            counter += [a.evidence[0] for a in aligned[:2]]
         status = "modified" if units and set(units) <= umap.get(m.before_unit_id or "", set()) else "moved"
         out.append(m.model_copy(update={"status": status, "after_unit_ids": units, "confidence": 0.6,
                                         "evidence": m.evidence + counter}))
@@ -366,12 +441,13 @@ def build_flows(mappings: list[FunctionMapping]) -> list[Flow]:
 
 # --- всё вместе ---
 
-def analyze_functions(ctx: Ctx, units: list[Unit], changes: list[UnitChange]) -> FunctionsResult:
+def analyze_functions(ctx: Ctx, units: list[Unit], changes: list[UnitChange],
+                      alignments: list[ClauseAlignment] | None = None) -> FunctionsResult:
     funcs: list[Func] = []
     for doc in ctx.docs:
         funcs += extract_functions(ctx, doc, units, start=sum(1 for f in funcs if f.side == doc.side))
     before = [f for f in funcs if f.side == "before"]
     after = [f for f in funcs if f.side == "after"]
-    mappings, notes = match_functions(before, after, changes)
+    mappings, notes = match_functions(before, after, changes, alignments)
     findings = loss_findings(mappings, notes, after, units) + duplicate_findings(after, units)
     return FunctionsResult(funcs=funcs, mappings=mappings, findings=findings, flows=build_flows(mappings))

@@ -139,6 +139,7 @@ def _dedupe(units: list[Unit]) -> list[Unit]:
     """Одна единица из разных документов («ОР» в приказе и «Отдел разработки» в положении) → одна запись.
     Голое «Отдел»/«Служба» без названия (из фразы «Отдел осуществляет…») — не единица."""
     units = [u for u in units if _norm(u.name) not in _GENERIC_NAMES or u.abbr]
+    order = {u.id: i for i, u in enumerate(units)}
     out: list[Unit] = []
     for u in sorted(units, key=lambda x: (x.abbr is None, -len(x.positions))):  # сначала с аббревиатурой
         twin = next((o for o in out if _same_entity(o, u)), None)
@@ -148,7 +149,7 @@ def _dedupe(units: list[Unit]) -> list[Unit]:
         twin.evidence.extend(e for e in u.evidence if e not in twin.evidence)
         twin.positions.extend(p for p in u.positions if _norm(p) not in {_norm(x) for x in twin.positions})
         twin.parent = twin.parent or u.parent
-    return out
+    return sorted(out, key=lambda x: order[x.id])  # исходный порядок — стабильный промпт на следующих шагах
 
 
 def document_subject(doc: DocumentText, units: list[Unit]) -> Unit | None:

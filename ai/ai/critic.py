@@ -9,8 +9,9 @@ import numpy as np
 from pydantic import BaseModel
 
 from .context import Ctx, LLMEvidence
+from .functions import moved_clauses
 from .llm import call_llm, embed, load_prompt
-from .schemas import CriticVerdict, Finding
+from .schemas import ClauseAlignment, CriticVerdict, Finding
 
 TOP_CLAUSES = 14
 MAX_CLAUSE_CHARS = 1500
@@ -36,10 +37,23 @@ class _Index:
         return list(np.argsort(-(self.emb @ q))[:k])
 
 
-def _criticize(ctx: Ctx, idx: _Index, f: Finding) -> CriticVerdict:
+def _moved_rows(ctx: Ctx, f: Finding, moved: dict[str, str]) -> list[str]:
+    """Для «потери»: текст пунктов «после», куда по выравниванию переехали исходные пункты."""
+    rows = []
+    for e in f.evidence:
+        target = moved.get(e.clause_id) if e.side == "before" else None
+        for d in ctx.side("after"):
+            c = next((c for c in d.clauses if c.clause_id == target), None)
+            if c is not None:
+                rows.append(f"[{d.doc_id} | после | {c.clause_id}] (сюда переехал пункт {e.clause_id} документа «до») "
+                            f"{c.text[:MAX_CLAUSE_CHARS]}")
+    return rows
+
+
+def _criticize(ctx: Ctx, idx: _Index, f: Finding, moved: dict[str, str]) -> CriticVerdict:
     cited = {(e.doc_id, e.clause_id) for e in f.evidence}
     hits = idx.search(f"{f.title}. {f.description}", TOP_CLAUSES)
-    rows = []
+    rows = _moved_rows(ctx, f, moved) if f.type == "function_loss" else []
     for i in hits:
         d, c = idx.items[i]
         if (d.doc_id, c.clause_id) not in cited:
@@ -56,14 +70,16 @@ def _criticize(ctx: Ctx, idx: _Index, f: Finding) -> CriticVerdict:
     return CriticVerdict(verdict=verdict, argument=res.argument, counter_evidence=counter)
 
 
-def run_critic(ctx: Ctx, findings: list[Finding]) -> tuple[list[Finding], list[Finding]]:
+def run_critic(ctx: Ctx, findings: list[Finding],
+               alignments: list[ClauseAlignment] | None = None) -> tuple[list[Finding], list[Finding]]:
     """Возвращает (подтверждённые/спорные, опровергнутые)."""
     targets = [f for f in findings if f.type in CRITICIZED]
     if not targets:
         return findings, []
     idx = _Index(ctx)
+    moved = moved_clauses(alignments or [])
     with ThreadPoolExecutor(WORKERS) as pool:
-        verdicts = dict(zip((f.id for f in targets), pool.map(lambda f: _criticize(ctx, idx, f), targets)))
+        verdicts = dict(zip((f.id for f in targets), pool.map(lambda f: _criticize(ctx, idx, f, moved), targets)))
     kept, rejected = [], []
     for f in findings:
         v = verdicts.get(f.id)

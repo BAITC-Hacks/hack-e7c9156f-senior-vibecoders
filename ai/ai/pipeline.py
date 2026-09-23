@@ -50,7 +50,7 @@ def run_analysis(before_files: list[Path], after_files: list[Path],
     changes = match_units(ctx, units)
 
     step("functions")
-    fr = analyze_functions(ctx, units, changes)
+    fr = analyze_functions(ctx, units, changes, alignments)
 
     step("conflicts")
     findings = structure_findings(changes, units) + fr.findings + \
@@ -66,9 +66,9 @@ def run_analysis(before_files: list[Path], after_files: list[Path],
     draft = verify_result(draft)  # цитаты проверяет код; неверные ссылки исправляются или помечаются
 
     step("critic")
-    kept, rejected = run_critic(ctx, draft.findings)
+    kept, rejected = run_critic(ctx, draft.findings, alignments)
 
-    mappings = apply_rejected_losses(draft.function_mappings, rejected, fr.funcs, changes)
+    mappings = apply_rejected_losses(draft.function_mappings, rejected, fr.funcs, changes, alignments)
 
     step("report")
     conclusion = write_conclusion(ctx, units, draft.unit_changes, kept)
