@@ -27,7 +27,7 @@ type Side = "before" | "after";
 interface AnalysisStatus {
   id: string;
   status: "queued" | "running" | "done" | "failed";
-  step?: string;        // "parsing" | "units" | "unit_matching" | "functions" | "function_matching" | "duplicates" | "conflicts" | "evidence" | "report"
+  step?: string;        // "parsing" | "alignment" | "units" | "functions" | "conflicts" | "evidence" | "critic" | "report"
   progress: number;     // 0..1
   error?: string;
 }
@@ -51,10 +51,19 @@ interface UnitChange {
 }
 
 interface FunctionMapping {
-  function: string; before_unit_id?: string; after_unit_ids: string[];
+  id: string;
+  function: string;
+  category_id: string;  // id из AnalysisResult.categories (каталог функций)
+  before_unit_id?: string; after_unit_ids: string[];
   status: "preserved" | "moved" | "modified" | "lost";
   confidence: number;   // 0..1
   evidence: Evidence[];
+}
+
+interface CriticVerdict {             // агент-критик пытался опровергнуть вывод
+  verdict: "upheld" | "refuted" | "uncertain";
+  argument: string;
+  counter_evidence: Evidence[];
 }
 
 interface Finding {
@@ -63,14 +72,40 @@ interface Finding {
   severity: "high" | "medium" | "low";
   title: string; description: string; recommendation?: string;
   unit_ids: string[]; evidence: Evidence[];
+  rule_id?: string;       // для conflict_of_interest: id правила несовместимости функций
+  critic?: CriticVerdict;
+}
+
+interface Clause { clause_id: string; section: string; text: string; }   // clause_id: "3.4", "2.4.7", "3.4.а"
+
+interface DocumentText { doc_id: string; name: string; side: Side; clauses: Clause[]; }
+
+interface ClauseAlignment {           // redline: пары пунктов «до ↔ после»
+  before_clause_id?: string;          // нет → пункт добавлен
+  after_clause_id?: string;           // нет → пункт удалён
+  status: "unchanged" | "modified" | "added" | "removed" | "moved";   // moved = текст тот же, номер другой
+  similarity: number;                 // 0..1
+  diff?: { op: "equal" | "insert" | "delete"; text: string }[];       // пословный дифф, для modified
+}
+
+interface Flow {                      // Sankey: откуда куда ушли функции
+  source_unit_id: string;             // Unit «до»
+  target_unit_id: string;             // Unit «после» или "lost"
+  function_ids: string[];             // FunctionMapping.id
+  value: number;                      // = function_ids.length
 }
 
 interface AnalysisResult {
   units: Unit[];
   unit_changes: UnitChange[];
   function_mappings: FunctionMapping[];
-  findings: Finding[];
+  findings: Finding[];                // подтверждённые (critic.verdict !== "refuted")
+  rejected_findings: Finding[];       // опровергнутые критиком — показываем отдельно
   conclusion_md: string;
+  documents: DocumentText[];          // полный текст по пунктам — для redline и панели «Источник»
+  alignments: ClauseAlignment[];
+  flows: Flow[];
+  categories: { id: string; name: string }[];
   meta: {
     model: string; provider: string; duration_s: number;
     documents: { doc_id: string; name: string; side: Side }[];
@@ -99,3 +134,4 @@ result: AnalysisResult = run_analysis(
 ## История
 
 - 2026-09-23 — первая версия контракта.
+- 2026-09-23 — добавлено: redline (`documents`, `alignments`), Sankey (`flows`), каталог функций (`categories`, `FunctionMapping.id/category_id`), агент-критик (`Finding.critic`, `rejected_findings`), SoD-правила (`Finding.rule_id`). Pydantic-эталон: `ai/ai/schemas.py`.
