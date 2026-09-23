@@ -32,9 +32,10 @@ class AnalysisStoreTest(TestCase):
     def test_create_persists_files_metadata_and_queued_status(self) -> None:
         analysis_id, folder = self.create()
         self.assertEqual(len(analysis_id), 32)
-        self.assertEqual((folder / "before-1.docx").read_bytes(), b"old")
-        self.assertEqual((folder / "after-1.pdf").read_bytes(), b"new")
+        self.assertEqual((folder / "before-1" / "old.docx").read_bytes(), b"old")
+        self.assertEqual((folder / "after-1" / "new.pdf").read_bytes(), b"new")
         self.assertEqual([d["doc_id"] for d in self.store.documents(folder)], ["before-1", "after-1"])
+        self.assertEqual([d["path"] for d in self.store.documents(folder)], ["before-1/old.docx", "after-1/new.pdf"])
         status = self.store.status(folder)
         self.assertEqual((status.status, status.progress), ("queued", 0))
         datetime.fromisoformat(status.created_at)
@@ -45,6 +46,31 @@ class AnalysisStoreTest(TestCase):
         for invalid in ("../storage", "../../ai", "A" * 32, "0" * 32, ""):
             self.assertIsNone(self.store.directory(invalid))
 
+    def test_same_filename_is_kept_for_each_document(self) -> None:
+        analysis_id = self.store.create([
+            ("before", "policy.docx", b"first"),
+            ("before", "policy.docx", b"second"),
+            ("after", "policy.docx", b"third"),
+        ])
+        folder = self.store.directory(analysis_id)
+        documents = self.store.documents(folder)
+        self.assertEqual([d["name"] for d in documents], ["policy.docx"] * 3)
+        self.assertEqual([d["path"] for d in documents], [
+            "before-1/policy.docx", "before-2/policy.docx", "after-1/policy.docx",
+        ])
+        self.assertEqual([(folder / d["path"]).read_bytes() for d in documents], [
+            b"first", b"second", b"third",
+        ])
+
+    def test_windows_reserved_filename_is_safe_to_store(self) -> None:
+        analysis_id = self.store.create([
+            ("before", "CON.docx", b"old"), ("after", "Plan?.pdf", b"new"),
+        ])
+        folder = self.store.directory(analysis_id)
+        paths = [d["path"] for d in self.store.documents(folder)]
+        self.assertEqual(paths, ["before-1/_CON.docx", "after-1/Plan_.pdf"])
+        self.assertTrue(all((folder / path).exists() for path in paths))
+
     def test_run_progress_preserves_created_at_and_all_result_fields(self) -> None:
         analysis_id, folder = self.create()
         created_at = self.store.status(folder).created_at
@@ -53,8 +79,8 @@ class AnalysisStoreTest(TestCase):
         observed = []
 
         def fake_run(before, after, on_progress, *, mock):
-            self.assertEqual(before, [folder / "before-1.docx"])
-            self.assertEqual(after, [folder / "after-1.pdf"])
+            self.assertEqual(before, [folder / "before-1" / "old.docx"])
+            self.assertEqual(after, [folder / "after-1" / "new.pdf"])
             self.assertTrue(mock)
             on_progress("alignment", 0.35)
             observed.append(self.store.status(folder).model_dump())
@@ -140,6 +166,13 @@ class AnalysisStoreTest(TestCase):
         with patch("app.services.analyses.run_analysis", side_effect=ModuleNotFoundError("ai")):
             real_store.run(missing_ai_id)
         self.assertEqual(real_store.status(real_store.directory(missing_ai_id)).error, "Пакет ИИ недоступен")
+
+        missing_key_id = real_store.create([
+            ("before", "old.docx", b"old"), ("after", "new.docx", b"new"),
+        ])
+        with patch("app.services.analyses.run_analysis", side_effect=KeyError("OPENAI_API_KEY")):
+            real_store.run(missing_key_id)
+        self.assertEqual(real_store.status(real_store.directory(missing_key_id)).error, "ИИ не настроен: заполните ai/.env")
 
     def test_old_result_is_read_with_new_contract_lists(self) -> None:
         analysis_id, folder = self.create()
